@@ -1,0 +1,22 @@
+# === ARCHIVO TEMPLATE PARA .ENV ===
+# Instrucciones:
+# 1. Renombra este archivo a ".env" (sin .txt)
+# 2. Reemplaza los valores con tus API keys reales
+# 3. NUNCA subas .env a Git (ya está en .gitignore)
+
+# === APIs de IA (configura al menos una) ===
+OPENAI_API_KEY=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
+CLAUDE_API_KEY=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
+
+# === Configuración por defecto ===
+DEFAULT_AI_PROVIDER=claude
+
+# === APIs de datos de productos ===
+GO_UPC_API_KEY=xxx
+EANSEARCH_API_TOKEN=c5b5fefdb77afc54237166803d71d14df66efaf5
+
+# === Para obtener API keys ===
+# OpenAI: https://platform.openai.com/api-keys
+# Claude: https://console.anthropic.com/
+# GO-UPC: https://go-upc.com/api
+# EANSearch: https://www.ean-search.org/ean-database-api.html 
