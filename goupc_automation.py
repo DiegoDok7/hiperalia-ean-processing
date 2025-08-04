@@ -16,6 +16,7 @@ except ImportError:
     print("⚠️  python-dotenv no instalado. Usando variables del sistema.")
 
 # Obtener API keys
+GO_UPC_API_KEY = os.getenv('GO_UPC_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 print("🔑 GO-UPC API key configurada")
