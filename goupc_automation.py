@@ -16,8 +16,8 @@ except ImportError:
     print("⚠️  python-dotenv no instalado. Usando variables del sistema.")
 
 # Obtener API keys
-GO_UPC_API_KEY = os.getenv('GO_UPC_API_KEY')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+GO_UPC_API_KEY = "8c6215de81c44ee7546d8140fd980c9ba12f19f101184f383f1bbea3f01b5ea8"  # API key hardcodeada temporalmente
+OPENAI_API_KEY = "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"
 
 print("🔑 GO-UPC API key configurada")
 
@@ -394,6 +394,8 @@ def guardar_excel_goupc(datos: list, ruta_archivo: str):
                     valor = valor.replace('\n', ' ').replace('\r', ' ').strip()
                 elif isinstance(valor, bool):
                     valor = 'Sí' if valor else 'No'
+                elif isinstance(valor, list):
+                    valor = ', '.join(str(item) for item in valor)
                 elif valor is None:
                     valor = ''
                 
