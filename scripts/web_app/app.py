@@ -114,32 +114,26 @@ def get_product_data(ean):
         }
 
 def download_image(image_url, ean):
-    """Descarga la imagen del producto"""
+    """Descarga la imagen del producto en memoria (no guarda archivos)"""
     try:
         response = requests.get(image_url, timeout=15)
         if response.status_code == 200:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{ean}_{timestamp}_original.jpg"
-            filepath = os.path.join(UPLOAD_FOLDER, filename)
-            
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            
-            return {'success': True, 'filepath': filepath, 'filename': filename}
+            # Convertir a base64 para mostrar en la web sin guardar archivo
+            image_base64 = base64.b64encode(response.content).decode('utf-8')
+            return {
+                'success': True, 
+                'image_data': image_base64,
+                'content_type': 'image/jpeg',
+                'size': len(response.content)
+            }
         else:
             return {'success': False, 'error': f'Error descargando imagen: {response.status_code}'}
     except Exception as e:
         return {'success': False, 'error': f'Error descargando imagen: {str(e)}'}
 
-def enhance_image_with_gemini(image_path, prompt, api_key):
-    """Mejora la imagen usando Google Gemini API"""
+def enhance_image_with_gemini(image_data_base64, prompt, api_key):
+    """Mejora la imagen usando Google Gemini API (trabaja en memoria)"""
     try:
-        # Leer y codificar la imagen
-        with open(image_path, 'rb') as f:
-            image_data = f.read()
-        
-        image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
         # Preparar payload para Gemini
         url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent"
         headers = {
@@ -157,7 +151,7 @@ def enhance_image_with_gemini(image_path, prompt, api_key):
                         {
                             "inline_data": {
                                 "mime_type": "image/jpeg",
-                                "data": image_base64
+                                "data": image_data_base64
                             }
                         }
                     ]
@@ -176,18 +170,13 @@ def enhance_image_with_gemini(image_path, prompt, api_key):
                 if "content" in candidate and "parts" in candidate["content"]:
                     for part in candidate["content"]["parts"]:
                         if "inlineData" in part:
-                            # Decodificar imagen mejorada
-                            img_bytes = base64.b64decode(part['inlineData']['data'])
-                            image = Image.open(BytesIO(img_bytes))
-                            
-                            # Guardar imagen mejorada
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            ean = os.path.basename(image_path).split('_')[0]
-                            filename = f"{ean}_{timestamp}_enhanced.png"
-                            filepath = os.path.join(PROCESSED_FOLDER, filename)
-                            
-                            image.save(filepath)
-                            return {'success': True, 'filepath': filepath, 'filename': filename}
+                            # Devolver imagen mejorada como base64
+                            enhanced_image_base64 = part['inlineData']['data']
+                            return {
+                                'success': True, 
+                                'image_data': enhanced_image_base64,
+                                'content_type': 'image/png'
+                            }
             
             return {'success': False, 'error': 'No se pudo procesar la imagen con IA'}
         else:
@@ -196,8 +185,8 @@ def enhance_image_with_gemini(image_path, prompt, api_key):
     except Exception as e:
         return {'success': False, 'error': f'Error procesando imagen: {str(e)}'}
 
-def create_excel_file(product_data, ean):
-    """Crea archivo Excel con los datos del producto"""
+def create_excel_data(product_data, ean):
+    """Crea datos Excel en memoria (no guarda archivos)"""
     try:
         wb = Workbook()
         ws = wb.active
@@ -234,13 +223,19 @@ def create_excel_file(product_data, ean):
         ws.column_dimensions['A'].width = 20
         ws.column_dimensions['B'].width = 50
         
-        # Guardar archivo
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{ean}_{timestamp}_datos.xlsx"
-        filepath = os.path.join(PROCESSED_FOLDER, filename)
-        wb.save(filepath)
+        # Guardar en memoria como bytes
+        from io import BytesIO
+        excel_buffer = BytesIO()
+        wb.save(excel_buffer)
+        excel_data = excel_buffer.getvalue()
+        excel_base64 = base64.b64encode(excel_data).decode('utf-8')
         
-        return {'success': True, 'filepath': filepath, 'filename': filename}
+        return {
+            'success': True, 
+            'excel_data': excel_base64,
+            'content_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'size': len(excel_data)
+        }
     
     except Exception as e:
         return {'success': False, 'error': f'Error creando Excel: {str(e)}'}
@@ -276,8 +271,9 @@ def process_ean():
             image_result = download_image(product_data['image_url'], ean)
             if image_result['success']:
                 result['images']['original'] = {
-                    'filename': image_result['filename'],
-                    'url': f"/static/uploads/{image_result['filename']}"
+                    'data': image_result['image_data'],
+                    'content_type': image_result['content_type'],
+                    'size': image_result['size']
                 }
                 
                 # Mejorar imagen con IA
@@ -290,21 +286,22 @@ def process_ean():
                             "and appealing for online sales. Ensure the product remains realistic and "
                             "true to its original appearance.")
                     
-                    enhance_result = enhance_image_with_gemini(image_result['filepath'], prompt, api_key)
+                    enhance_result = enhance_image_with_gemini(image_result['image_data'], prompt, api_key)
                     if enhance_result['success']:
                         result['images']['enhanced'] = {
-                            'filename': enhance_result['filename'],
-                            'url': f"/static/processed/{enhance_result['filename']}"
+                            'data': enhance_result['image_data'],
+                            'content_type': enhance_result['content_type']
                         }
                     else:
                         result['ai_error'] = enhance_result['error']
         
-        # Crear archivo Excel
-        excel_result = create_excel_file(product_data, ean)
+        # Crear datos Excel
+        excel_result = create_excel_data(product_data, ean)
         if excel_result['success']:
             result['files']['excel'] = {
-                'filename': excel_result['filename'],
-                'url': f"/download/{excel_result['filename']}"
+                'data': excel_result['excel_data'],
+                'content_type': excel_result['content_type'],
+                'size': excel_result['size']
             }
         
         return jsonify(result)
@@ -312,31 +309,7 @@ def process_ean():
     except Exception as e:
         return jsonify({'success': False, 'error': f'Error procesando EAN: {str(e)}'})
 
-@app.route('/download/<filename>')
-def download_file(filename):
-    try:
-        filepath = os.path.join(PROCESSED_FOLDER, filename)
-        if os.path.exists(filepath):
-            return send_file(filepath, as_attachment=True)
-        else:
-            return "Archivo no encontrado", 404
-    except Exception as e:
-        return f"Error descargando archivo: {str(e)}", 500
-
-@app.route('/download_image/<path:filename>')
-def download_image_file(filename):
-    try:
-        if filename.startswith('original'):
-            filepath = os.path.join(UPLOAD_FOLDER, filename)
-        else:
-            filepath = os.path.join(PROCESSED_FOLDER, filename)
-        
-        if os.path.exists(filepath):
-            return send_file(filepath, as_attachment=True)
-        else:
-            return "Archivo no encontrado", 404
-    except Exception as e:
-        return f"Error descargando imagen: {str(e)}", 500
+# Las rutas de descarga se eliminaron ya que ahora trabajamos en memoria
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

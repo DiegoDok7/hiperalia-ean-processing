@@ -383,8 +383,8 @@
                         imagesHTML += `
                             <div class="image-card">
                                 <h3><i class="fas fa-image"></i> Imagen Original</h3>
-                                <img src="${result.images.original.url}" alt="Imagen Original">
-                                <button class="btn btn-secondary" onclick="downloadImage('${result.images.original.filename}')">
+                                <img src="data:${result.images.original.content_type};base64,${result.images.original.data}" alt="Imagen Original">
+                                <button class="btn btn-secondary" onclick="downloadBase64Image('${result.images.original.data}', '${result.product_data.ean}_original.jpg', '${result.images.original.content_type}')">
                                     <i class="fas fa-download"></i> Descargar Original
                                 </button>
                             </div>
@@ -395,8 +395,8 @@
                         imagesHTML += `
                             <div class="image-card">
                                 <h3><i class="fas fa-magic"></i> Imagen Mejorada con IA</h3>
-                                <img src="${result.images.enhanced.url}" alt="Imagen Mejorada">
-                                <button class="btn btn-success" onclick="downloadImage('${result.images.enhanced.filename}')">
+                                <img src="data:${result.images.enhanced.content_type};base64,${result.images.enhanced.data}" alt="Imagen Mejorada">
+                                <button class="btn btn-success" onclick="downloadBase64Image('${result.images.enhanced.data}', '${result.product_data.ean}_enhanced.png', '${result.images.enhanced.content_type}')">
                                     <i class="fas fa-download"></i> Descargar Mejorada
                                 </button>
                             </div>
@@ -421,7 +421,7 @@
                     
                     if (result.files && result.files.excel) {
                         downloadHTML += `
-                            <button class="btn btn-primary" onclick="downloadFile('${result.files.excel.filename}')">
+                            <button class="btn btn-primary" onclick="downloadBase64File('${result.files.excel.data}', '${result.product_data.ean}_datos.xlsx', '${result.files.excel.content_type}')">
                                 <i class="fas fa-file-excel"></i> Descargar Excel
                             </button>
                         `;
@@ -461,12 +461,52 @@
             }
         }
 
-        function downloadFile(filename) {
-            window.open(`/download/${filename}`, '_blank');
+        function downloadBase64Image(base64Data, filename, contentType) {
+            try {
+                const byteCharacters = atob(base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: contentType });
+                
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Error descargando imagen:', error);
+                alert('Error descargando imagen');
+            }
         }
 
-        function downloadImage(filename) {
-            window.open(`/download_image/${filename}`, '_blank');
+        function downloadBase64File(base64Data, filename, contentType) {
+            try {
+                const byteCharacters = atob(base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: contentType });
+                
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Error descargando archivo:', error);
+                alert('Error descargando archivo');
+            }
         }
     </script>
 </body>
