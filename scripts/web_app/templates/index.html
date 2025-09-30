@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procesador EAN con IA - Mejora de Imágenes</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .form-section {
+            padding: 40px;
+            background: #f8f9fa;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .input-group input {
+            flex: 1;
+            min-width: 300px;
+            padding: 15px 20px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(79, 172, 254, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(86, 171, 47, 0.3);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4facfe;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results {
+            display: none;
+            padding: 40px;
+        }
+
+        .product-info {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .product-info h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .info-item {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .info-item strong {
+            color: #2c3e50;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .images-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .image-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+
+        .image-card h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+
+        .image-card img {
+            max-width: 100%;
+            height: 200px;
+            object-fit: contain;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border: 2px solid #e1e5e9;
+        }
+
+        .download-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .download-section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #c33;
+        }
+
+        .success {
+            background: #efe;
+            color: #363;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #363;
+        }
+
+        @media (max-width: 768px) {
+            .input-group {
+                flex-direction: column;
+            }
+            
+            .input-group input {
+                min-width: 100%;
+            }
+            
+            .download-buttons {
+                flex-direction: column;
+            }
+            
+            .images-section {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-barcode"></i> Procesador EAN con IA</h1>
+            <p>Obtén información de productos y mejora sus imágenes con inteligencia artificial</p>
+        </div>
+
+        <div class="form-section">
+            <form id="eanForm">
+                <div class="input-group">
+                    <input type="text" id="eanInput" placeholder="Ingresa el código EAN (ej: 8017759011104)" required>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search"></i> Procesar EAN
+                    </button>
+                </div>
+            </form>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Procesando EAN y mejorando imagen con IA...</p>
+            </div>
+
+            <div class="results" id="results">
+                <div class="product-info">
+                    <h2><i class="fas fa-info-circle"></i> Información del Producto</h2>
+                    <div class="info-grid" id="productInfo">
+                        <!-- Se llenará dinámicamente -->
+                    </div>
+                </div>
+
+                <div class="images-section" id="imagesSection">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+
+                <div class="download-section">
+                    <h2><i class="fas fa-download"></i> Descargar Archivos</h2>
+                    <div class="download-buttons" id="downloadButtons">
+                        <!-- Se llenará dinámicamente -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('eanForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const ean = document.getElementById('eanInput').value.trim();
+            if (!ean) return;
+            
+            // Mostrar loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            
+            try {
+                const formData = new FormData();
+                formData.append('ean', ean);
+                
+                const response = await fetch('/process_ean', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                document.getElementById('loading').style.display = 'none';
+                
+                if (result.success) {
+                    displayResults(result);
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                showError('Error de conexión: ' + error.message);
+            }
+        });
+
+        function displayResults(result) {
+            try {
+                // Mostrar información del producto
+                const productInfo = document.getElementById('productInfo');
+                if (productInfo && result.product_data) {
+                    productInfo.innerHTML = `
+                        <div class="info-item">
+                            <strong>EAN:</strong> ${result.product_data.ean || 'No disponible'}
+                        </div>
+                        <div class="info-item">
+                            <strong>Nombre:</strong> ${result.product_data.name || 'No disponible'}
+                        </div>
+                        <div class="info-item">
+                            <strong>Marca:</strong> ${result.product_data.brand || 'No disponible'}
+                        </div>
+                        <div class="info-item">
+                            <strong>Descripción:</strong> ${result.product_data.description || 'No disponible'}
+                        </div>
+                        <div class="info-item">
+                            <strong>Categoría:</strong> ${result.product_data.category || 'No disponible'}
+                        </div>
+                        <div class="info-item">
+                            <strong>Grado Nutricional:</strong> ${result.product_data.nutrition_grade || 'No disponible'}
+                        </div>
+                        <div class="info-item">
+                            <strong>Ingredientes:</strong> ${result.product_data.ingredients || 'No disponible'}
+                        </div>
+                        <div class="info-item">
+                            <strong>Alérgenos:</strong> ${result.product_data.allergens && result.product_data.allergens.length > 0 ? result.product_data.allergens.join(', ') : 'Ninguno'}
+                        </div>
+                    `;
+                }
+
+                // Mostrar imágenes
+                const imagesSection = document.getElementById('imagesSection');
+                if (imagesSection) {
+                    let imagesHTML = '';
+                    
+                    if (result.images && result.images.original) {
+                        imagesHTML += `
+                            <div class="image-card">
+                                <h3><i class="fas fa-image"></i> Imagen Original</h3>
+                                <img src="${result.images.original.url}" alt="Imagen Original">
+                                <button class="btn btn-secondary" onclick="downloadImage('${result.images.original.filename}')">
+                                    <i class="fas fa-download"></i> Descargar Original
+                                </button>
+                            </div>
+                        `;
+                    }
+                    
+                    if (result.images && result.images.enhanced) {
+                        imagesHTML += `
+                            <div class="image-card">
+                                <h3><i class="fas fa-magic"></i> Imagen Mejorada con IA</h3>
+                                <img src="${result.images.enhanced.url}" alt="Imagen Mejorada">
+                                <button class="btn btn-success" onclick="downloadImage('${result.images.enhanced.filename}')">
+                                    <i class="fas fa-download"></i> Descargar Mejorada
+                                </button>
+                            </div>
+                        `;
+                    }
+                    
+                    if (result.ai_error) {
+                        imagesHTML += `
+                            <div class="error">
+                                <i class="fas fa-exclamation-triangle"></i> Error en mejora de imagen: ${result.ai_error}
+                            </div>
+                        `;
+                    }
+                    
+                    imagesSection.innerHTML = imagesHTML;
+                }
+
+                // Mostrar botones de descarga
+                const downloadButtons = document.getElementById('downloadButtons');
+                if (downloadButtons) {
+                    let downloadHTML = '';
+                    
+                    if (result.files && result.files.excel) {
+                        downloadHTML += `
+                            <button class="btn btn-primary" onclick="downloadFile('${result.files.excel.filename}')">
+                                <i class="fas fa-file-excel"></i> Descargar Excel
+                            </button>
+                        `;
+                    }
+                    
+                    downloadButtons.innerHTML = downloadHTML;
+                }
+
+                // Mostrar resultados
+                const resultsElement = document.getElementById('results');
+                if (resultsElement) {
+                    resultsElement.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error en displayResults:', error);
+                showError('Error mostrando resultados: ' + error.message);
+            }
+        }
+
+        function showError(message) {
+            try {
+                const resultsElement = document.getElementById('results');
+                if (resultsElement) {
+                    resultsElement.innerHTML = `
+                        <div class="error">
+                            <i class="fas fa-exclamation-triangle"></i> ${message}
+                        </div>
+                    `;
+                    resultsElement.style.display = 'block';
+                } else {
+                    console.error('Elemento results no encontrado');
+                    alert('Error: ' + message);
+                }
+            } catch (error) {
+                console.error('Error en showError:', error);
+                alert('Error: ' + message);
+            }
+        }
+
+        function downloadFile(filename) {
+            window.open(`/download/${filename}`, '_blank');
+        }
+
+        function downloadImage(filename) {
+            window.open(`/download_image/${filename}`, '_blank');
+        }
+    </script>
+</body>
+</html>
