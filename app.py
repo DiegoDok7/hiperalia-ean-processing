@@ -10,7 +10,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scripts', 'web_app'))
 
 # Importar la aplicación Flask
-from app import app
+from scripts.web_app.app import app
 
 # La variable app debe estar disponible para Gunicorn
 if __name__ == '__main__':
