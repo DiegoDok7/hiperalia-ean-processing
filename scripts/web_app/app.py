@@ -27,8 +27,11 @@ os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 def get_product_data(ean):
     """Obtiene datos del producto usando Open Food Facts API v2"""
     try:
+        print(f"🔍 get_product_data recibió EAN: '{ean}' (tipo: {type(ean)})")  # Debug
+        
         # Validar formato del EAN
         if not ean or not ean.isdigit() or len(ean) < 8 or len(ean) > 14:
+            print(f"❌ EAN inválido: '{ean}' (longitud: {len(ean) if ean else 0})")  # Debug
             return {
                 'success': False, 
                 'error': 'El código EAN debe ser numérico y tener entre 8 y 14 dígitos'
@@ -40,7 +43,8 @@ def get_product_data(ean):
             "User-Agent": "MiApp/1.0 (miemail@example.com)"
         }
         
-        print(f"Consultando API para EAN: {ean}")  # Debug
+        print(f"🔍 Consultando API para EAN: {ean}")  # Debug
+        print(f"🔍 URL: {url}")  # Debug
         response = requests.get(url, headers=headers, timeout=15)
         print(f"Status Code: {response.status_code}")  # Debug
         
@@ -248,11 +252,13 @@ def index():
 def process_ean():
     try:
         ean = request.form.get('ean', '').strip()
+        print(f"🔍 EAN recibido en process_ean: '{ean}'")  # Debug
         
         if not ean:
             return jsonify({'success': False, 'error': 'EAN requerido'})
         
         # Obtener datos del producto
+        print(f"🔍 Llamando get_product_data con EAN: '{ean}'")  # Debug
         product_result = get_product_data(ean)
         
         if not product_result['success']:
