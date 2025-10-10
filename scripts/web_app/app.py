@@ -23,10 +23,23 @@ app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_aqui'
 
 # Configuración de directorios
-UPLOAD_FOLDER = 'static/uploads'
-PROCESSED_FOLDER = 'static/processed'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+# En producción usar /tmp, en desarrollo usar static/
+if os.environ.get('RENDER'):
+    UPLOAD_FOLDER = '/tmp/uploads'
+    PROCESSED_FOLDER = '/tmp/processed'
+else:
+    UPLOAD_FOLDER = 'static/uploads'
+    PROCESSED_FOLDER = 'static/processed'
+
+# Crear directorios de forma segura
+try:
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+except Exception as e:
+    print(f"⚠️ Advertencia: No se pudieron crear directorios: {e}")
+    # Continuar sin fallar, usar /tmp como fallback
+    UPLOAD_FOLDER = '/tmp'
+    PROCESSED_FOLDER = '/tmp'
 
 def get_product_data(ean):
     """Obtiene datos del producto usando Open Food Facts API v2"""
@@ -197,7 +210,14 @@ def remove_white_background(image_data_base64):
     """Remueve el fondo blanco de una imagen usando rembg"""
     try:
         # Importación lazy de rembg para evitar timeout en el inicio
-        from rembg import remove
+        try:
+            from rembg import remove
+        except ImportError as ie:
+            print(f"⚠️ rembg no disponible: {ie}")
+            return {
+                'success': False,
+                'error': 'Librería rembg no disponible en este entorno'
+            }
         
         # Decodificar la imagen base64
         image_bytes = base64.b64decode(image_data_base64)
@@ -277,6 +297,16 @@ def create_excel_data(product_data, ean):
     
     except Exception as e:
         return {'success': False, 'error': f'Error creando Excel: {str(e)}'}
+
+# Health check endpoint para Render
+@app.route('/health')
+def health():
+    """Endpoint de health check para monitoreo"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'ean-automation',
+        'timestamp': datetime.now().isoformat()
+    }), 200
 
 @app.route('/')
 def index():
