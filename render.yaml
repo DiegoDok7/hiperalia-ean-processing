@@ -3,7 +3,7 @@ services:
     name: ean-automation
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --log-level debug --access-logfile - --error-logfile -
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -14,3 +14,5 @@ services:
         value: /tmp
       - key: REMBG_MODELS_DIR
         value: /tmp
+      - key: PYTHONUNBUFFERED
+        value: "1"

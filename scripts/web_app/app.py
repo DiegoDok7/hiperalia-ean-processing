@@ -1,45 +1,77 @@
+import sys
+import logging
+
+# Configurar logging detallado
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+logger.info("🚀 Iniciando importaciones...")
+
 from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for, Response, stream_with_context
+logger.info("✓ Flask importado")
+
 import os
 import json
 import requests
 from datetime import datetime
+logger.info("✓ Módulos estándar importados")
+
 from PIL import Image
 from io import BytesIO
 import base64
+logger.info("✓ PIL y IO importados")
+
 import openpyxl
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+logger.info("✓ openpyxl importado")
+
 from dotenv import load_dotenv
 import tempfile
 import shutil
 import zipfile
 import time
 import re
+logger.info("✓ Utilidades importadas")
 
 # Cargar variables de entorno
 load_dotenv()
+logger.info("✓ Variables de entorno cargadas")
 
+logger.info("🔧 Creando aplicación Flask...")
 app = Flask(__name__)
-app.secret_key = 'tu_clave_secreta_aqui'
+app.secret_key = os.environ.get('SECRET_KEY', 'tu_clave_secreta_aqui')
+logger.info("✓ Aplicación Flask creada")
 
 # Configuración de directorios
+logger.info("📁 Configurando directorios...")
 # En producción usar /tmp, en desarrollo usar static/
 if os.environ.get('RENDER'):
     UPLOAD_FOLDER = '/tmp/uploads'
     PROCESSED_FOLDER = '/tmp/processed'
+    logger.info(f"🌐 Modo producción (Render) - usando /tmp")
 else:
     UPLOAD_FOLDER = 'static/uploads'
     PROCESSED_FOLDER = 'static/processed'
+    logger.info(f"💻 Modo desarrollo - usando static/")
 
 # Crear directorios de forma segura
 try:
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+    logger.info(f"✓ Directorios creados: {UPLOAD_FOLDER}, {PROCESSED_FOLDER}")
 except Exception as e:
-    print(f"⚠️ Advertencia: No se pudieron crear directorios: {e}")
+    logger.warning(f"⚠️ No se pudieron crear directorios: {e}")
     # Continuar sin fallar, usar /tmp como fallback
     UPLOAD_FOLDER = '/tmp'
     PROCESSED_FOLDER = '/tmp'
+    logger.info(f"✓ Usando fallback: /tmp")
 
 def get_product_data(ean):
     """Obtiene datos del producto usando Open Food Facts API v2"""
@@ -576,6 +608,10 @@ def process_bulk():
     
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
+logger.info("✅ Aplicación Flask completamente cargada y lista!")
+logger.info(f"📊 Rutas registradas: {len(app.url_map._rules)}")
+
 if __name__ == '__main__':
+    logger.info("🚀 Iniciando servidor de desarrollo...")
     app.run(debug=True, host='0.0.0.0', port=5000)
 
