@@ -508,22 +508,39 @@ def process_bulk():
     """Procesa múltiples EANs y genera un ZIP con Excel e imágenes"""
     def generate():
         try:
+            logger.info("📦 Iniciando process_bulk...")
             eans_json = request.form.get('eans', '[]')
             eans = json.loads(eans_json)
+            logger.info(f"📊 Cantidad de EANs recibidos: {len(eans)}")
             
             if not eans:
+                logger.warning("⚠️ No se recibieron códigos EAN")
                 yield f"data: {json.dumps({'type': 'error', 'message': 'No se recibieron códigos EAN'})}\n\n"
                 return
+            
+            # Limitar cantidad de EANs para evitar timeout
+            max_eans = 50
+            if len(eans) > max_eans:
+                logger.warning(f"⚠️ Limitando procesamiento a {max_eans} EANs")
+                yield f"data: {json.dumps({'type': 'warning', 'message': f'Se procesarán solo los primeros {max_eans} EANs de {len(eans)}'})}\n\n"
+                eans = eans[:max_eans]
             
             products_data = []
             images_data = []
             
             # Procesar cada EAN
             for idx, ean in enumerate(eans):
+                logger.info(f"🔄 Procesando EAN {idx+1}/{len(eans)}: {ean}")
                 ean = ean.strip()
                 
                 # Obtener datos del producto
-                product_result = get_product_data(ean)
+                try:
+                    product_result = get_product_data(ean)
+                    logger.info(f"  ✓ Datos obtenidos para {ean}: {product_result.get('success', False)}")
+                except Exception as e:
+                    logger.error(f"  ❌ Error obteniendo datos para {ean}: {e}")
+                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': f'Error: {str(e)}'})}\n\n"
+                    continue
                 
                 if product_result['success']:
                     product = product_result['data']
@@ -531,11 +548,23 @@ def process_bulk():
                     
                     # Descargar y mejorar imagen si existe
                     if product['image_url']:
-                        image_result = download_image(product['image_url'], ean)
+                        logger.info(f"  🖼️ Procesando imagen para {ean}")
+                        try:
+                            image_result = download_image(product['image_url'], ean)
+                            if not image_result['success']:
+                                logger.warning(f"  ⚠️ No se pudo descargar imagen para {ean}")
+                                yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin imagen)'})}\n\n"
+                                continue
+                        except Exception as e:
+                            logger.error(f"  ❌ Error descargando imagen para {ean}: {e}")
+                            yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (error descargando imagen)'})}\n\n"
+                            continue
+                            
                         if image_result['success']:
                              # Mejorar imagen con IA
                              api_key = os.getenv("GEMINI_API_KEY")
                              if api_key:
+                                 logger.info(f"  🤖 Mejorando imagen con IA para {ean}")
                                  prompt = ("Take the provided product image as reference and enhance it for e-commerce. "
                                          "Remove the background completely (make it white), center the product, "
                                          "and show it from the front in a clean, clear, and attractive way. "
@@ -543,10 +572,27 @@ def process_bulk():
                                          "and appealing for online sales. Ensure the product remains realistic and "
                                          "true to its original appearance.")
                                  
-                                 enhance_result = enhance_image_with_gemini(image_result['image_data'], prompt, api_key)
+                                 try:
+                                     enhance_result = enhance_image_with_gemini(image_result['image_data'], prompt, api_key)
+                                     if not enhance_result['success']:
+                                         logger.warning(f"  ⚠️ Error en mejora de imagen con IA para {ean}: {enhance_result.get('error', 'Unknown')}")
+                                         yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin mejora de imagen)'})}\n\n"
+                                         continue
+                                 except Exception as e:
+                                     logger.error(f"  ❌ Excepción en Gemini para {ean}: {e}")
+                                     yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (error en mejora IA)'})}\n\n"
+                                     continue
+                                 
                                  if enhance_result['success']:
+                                     logger.info(f"  ✓ Imagen mejorada con IA para {ean}")
                                      # Remover fondo blanco usando rembg
-                                     remove_bg_result = remove_white_background(enhance_result['image_data'])
+                                     logger.info(f"  🎨 Removiendo fondo para {ean}")
+                                     try:
+                                         remove_bg_result = remove_white_background(enhance_result['image_data'])
+                                     except Exception as e:
+                                         logger.error(f"  ❌ Error en rembg para {ean}: {e}")
+                                         # Usar imagen mejorada sin remover fondo
+                                         remove_bg_result = {'success': False}
                                      if remove_bg_result['success']:
                                          # Sanitizar nombres para archivo
                                          name = sanitize_filename(product['name'])
@@ -584,26 +630,38 @@ def process_bulk():
                     yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': error_msg})}\n\n"
             
             # Crear archivo ZIP con Excel e imágenes
+            logger.info(f"📦 Creando ZIP final con {len(products_data)} productos y {len(images_data)} imágenes")
             if products_data:
-                zip_buffer = BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    # Agregar Excel
-                    excel_data = create_bulk_excel(products_data)
-                    if excel_data:
-                        zip_file.writestr('productos.xlsx', excel_data)
+                try:
+                    zip_buffer = BytesIO()
+                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                        # Agregar Excel
+                        logger.info("  📊 Creando Excel...")
+                        excel_data = create_bulk_excel(products_data)
+                        if excel_data:
+                            zip_file.writestr('productos.xlsx', excel_data)
+                            logger.info(f"  ✓ Excel agregado ({len(excel_data)} bytes)")
+                        
+                        # Agregar imágenes en una carpeta
+                        logger.info(f"  🖼️ Agregando {len(images_data)} imágenes...")
+                        for img in images_data:
+                            zip_file.writestr(f"imagenes/{img['filename']}", base64.b64decode(img['data']))
+                        logger.info("  ✓ Imágenes agregadas")
                     
-                    # Agregar imágenes en una carpeta
-                    for img in images_data:
-                        zip_file.writestr(f"imagenes/{img['filename']}", base64.b64decode(img['data']))
-                
-                zip_data = zip_buffer.getvalue()
-                zip_base64 = base64.b64encode(zip_data).decode('utf-8')
-                
-                yield f"data: {json.dumps({'type': 'complete', 'zip_data': zip_base64})}\n\n"
+                    zip_data = zip_buffer.getvalue()
+                    zip_base64 = base64.b64encode(zip_data).decode('utf-8')
+                    logger.info(f"✅ ZIP creado exitosamente ({len(zip_data)} bytes, {len(zip_base64)} base64)")
+                    
+                    yield f"data: {json.dumps({'type': 'complete', 'zip_data': zip_base64})}\n\n"
+                except Exception as e:
+                    logger.error(f"❌ Error creando ZIP: {e}", exc_info=True)
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Error creando ZIP: {str(e)}'})}\n\n"
             else:
+                logger.warning("⚠️ No hay productos para procesar")
                 yield f"data: {json.dumps({'type': 'error', 'message': 'No se pudieron procesar productos'})}\n\n"
         
         except Exception as e:
+            logger.error(f"❌ ERROR FATAL en process_bulk: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': f'Error: {str(e)}'})}\n\n"
     
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
