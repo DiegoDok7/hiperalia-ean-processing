@@ -15,7 +15,6 @@ import shutil
 import zipfile
 import time
 import re
-from rembg import remove
 
 # Cargar variables de entorno
 load_dotenv()
@@ -197,6 +196,9 @@ def enhance_image_with_gemini(image_data_base64, prompt, api_key):
 def remove_white_background(image_data_base64):
     """Remueve el fondo blanco de una imagen usando rembg"""
     try:
+        # Importación lazy de rembg para evitar timeout en el inicio
+        from rembg import remove
+        
         # Decodificar la imagen base64
         image_bytes = base64.b64decode(image_data_base64)
         
