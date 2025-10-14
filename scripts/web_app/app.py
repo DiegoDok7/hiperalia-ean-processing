@@ -184,6 +184,88 @@ def download_image(image_url, ean):
     except Exception as e:
         return {'success': False, 'error': f'Error descargando imagen: {str(e)}'}
 
+def search_product_web_data(ean, product_name, api_key):
+    """Busca información adicional del producto en internet usando Gemini 2.5 Flash-Lite"""
+    try:
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
+        headers = {
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json"
+        }
+        
+        prompt = f"""
+        Busca información detallada en internet sobre el producto con código EAN {ean} {f'y nombre "{product_name}"' if product_name and product_name != 'No disponible' else ''}.
+        
+        Proporciona la información en formato JSON con los siguientes campos (si no encuentras un campo, usa "No disponible"):
+        {{
+            "nombre": "nombre completo del producto",
+            "descripcion": "descripción detallada del producto",
+            "marca": "marca del producto",
+            "categoria": "categoría principal",
+            "categoria_path": "ruta completa de categorías (ej: Alimentación > Snacks > Galletas)",
+            "departamento": "departamento al que pertenece",
+            "producto_tipo": "tipo de producto",
+            "ingredientes": "lista de ingredientes",
+            "alergenos": "alérgenos presentes",
+            "organico": "si/no",
+            "no_gmo": "si/no",
+            "altura": "altura en cm",
+            "ancho": "ancho en cm",
+            "largo": "largo en cm",
+            "upc": "código UPC si está disponible",
+            "precio_estimado": "precio estimado en euros"
+        }}
+        
+        IMPORTANTE: Responde SOLO con el objeto JSON, sin texto adicional antes o después.
+        """
+        
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }],
+            "generationConfig": {
+                "temperature": 0.1,
+                "topK": 40,
+                "topP": 0.95,
+                "maxOutputTokens": 2048,
+            }
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if "candidates" in data and data["candidates"]:
+                candidate = data["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    for part in candidate["content"]["parts"]:
+                        if "text" in part:
+                            text_response = part["text"].strip()
+                            # Intentar extraer JSON de la respuesta
+                            try:
+                                # Buscar el JSON en la respuesta
+                                json_start = text_response.find('{')
+                                json_end = text_response.rfind('}') + 1
+                                if json_start != -1 and json_end > json_start:
+                                    json_str = text_response[json_start:json_end]
+                                    web_data = json.loads(json_str)
+                                    return {
+                                        'success': True,
+                                        'data': web_data
+                                    }
+                                else:
+                                    return {'success': False, 'error': 'No se encontró JSON en la respuesta'}
+                            except json.JSONDecodeError:
+                                return {'success': False, 'error': 'Error parseando JSON de la respuesta'}
+            
+            return {'success': False, 'error': 'No se encontró contenido en la respuesta'}
+        else:
+            return {'success': False, 'error': f'Error API Gemini: {response.status_code}'}
+    
+    except Exception as e:
+        return {'success': False, 'error': f'Error buscando datos web: {str(e)}'}
+
 def enhance_image_with_gemini(image_data_base64, prompt, api_key):
     """Mejora la imagen usando Google Gemini API (trabaja en memoria)"""
     try:
@@ -237,6 +319,85 @@ def enhance_image_with_gemini(image_data_base64, prompt, api_key):
     
     except Exception as e:
         return {'success': False, 'error': f'Error procesando imagen: {str(e)}'}
+
+def combine_product_data(ean, off_data, web_data):
+    """Combina datos de OpenFoodFacts y búsqueda web para crear registro completo"""
+    try:
+        # Generar Product ID único
+        product_id = f"PROD-{ean}"
+        
+        # Combinar datos priorizando la mejor fuente para cada campo
+        combined = {
+            # Campos para PrestaShop
+            'Product ID': product_id,
+            'Imagen': '',  # Se llenará con la ruta de la imagen procesada
+            'Nombre': web_data.get('nombre', off_data.get('name', 'No disponible')),
+            'Referencia': ean,
+            'Categoría': web_data.get('categoria', off_data.get('category', 'No disponible')),
+            'Precio (imp. excl.)': '',  # Dejar vacío según requerimientos
+            'Precio (imp. incl.)': '',  # Dejar vacío según requerimientos
+            'Cantidad': '0',  # Valor por defecto
+            
+            # Campos adicionales de interés
+            'Codigo': ean,
+            'Codigo Tipo': 'EAN',
+            'Nombre Producto': web_data.get('nombre', off_data.get('name', 'No disponible')),
+            'Descripcion': web_data.get('descripcion', off_data.get('description', 'No disponible')),
+            'Marca': web_data.get('marca', off_data.get('brand', 'No disponible')),
+            'Categoria': web_data.get('categoria', off_data.get('category', 'No disponible')),
+            'Categoria Path': web_data.get('categoria_path', 'No disponible'),
+            'Departamento': web_data.get('departamento', 'No disponible'),
+            'Producto Tipo': web_data.get('producto_tipo', 'No disponible'),
+            'Imagen Url': off_data.get('image_url', ''),
+            'Upc': web_data.get('upc', 'No disponible'),
+            'Ean': ean,
+            'Ingredientes': web_data.get('ingredientes', off_data.get('ingredients', 'No disponible')),
+            'Alergenos': web_data.get('alergenos', ', '.join(off_data.get('allergens', [])) if off_data.get('allergens') else 'No disponible'),
+            'Organico': web_data.get('organico', 'No disponible'),
+            'No Gmo': web_data.get('no_gmo', 'No disponible'),
+            'Altura': web_data.get('altura', 'No disponible'),
+            'Ancho': web_data.get('ancho', 'No disponible'),
+            'Largo': web_data.get('largo', 'No disponible'),
+            'Barcode Url': f'https://barcode.tec-it.com/barcode.ashx?data={ean}&code=EAN13',
+            'Producto Encontrado': 'si'
+        }
+        
+        return combined
+    
+    except Exception as e:
+        logger.error(f"Error combinando datos: {e}")
+        # Retornar estructura básica con datos mínimos
+        return {
+            'Product ID': f"PROD-{ean}",
+            'Imagen': '',
+            'Nombre': 'Error procesando datos',
+            'Referencia': ean,
+            'Categoría': 'No disponible',
+            'Precio (imp. excl.)': '',
+            'Precio (imp. incl.)': '',
+            'Cantidad': '0',
+            'Codigo': ean,
+            'Codigo Tipo': 'EAN',
+            'Nombre Producto': 'Error procesando datos',
+            'Descripcion': 'No disponible',
+            'Marca': 'No disponible',
+            'Categoria': 'No disponible',
+            'Categoria Path': 'No disponible',
+            'Departamento': 'No disponible',
+            'Producto Tipo': 'No disponible',
+            'Imagen Url': '',
+            'Upc': 'No disponible',
+            'Ean': ean,
+            'Ingredientes': 'No disponible',
+            'Alergenos': 'No disponible',
+            'Organico': 'No disponible',
+            'No Gmo': 'No disponible',
+            'Altura': 'No disponible',
+            'Ancho': 'No disponible',
+            'Largo': 'No disponible',
+            'Barcode Url': f'https://barcode.tec-it.com/barcode.ashx?data={ean}&code=EAN13',
+            'Producto Encontrado': 'no'
+        }
 
 def remove_white_background(image_data_base64):
     """Remueve el fondo blanco de una imagen usando rembg"""
@@ -447,50 +608,118 @@ def sanitize_filename(name):
     return name if name else 'sin_nombre'
 
 def create_bulk_excel(products_data):
-    """Crea un Excel con múltiples productos organizados por columnas"""
+    """Crea un Excel con múltiples productos organizados por columnas para PrestaShop"""
     try:
         wb = Workbook()
         ws = wb.active
-        ws.title = "Productos"
+        ws.title = "Productos para PrestaShop"
         
-        # Encabezados
+        # Encabezados según especificación
         headers = [
-            'EAN', 'Nombre', 'Marca', 'Descripción', 'Categoría',
-            'Grado Nutricional', 'Ingredientes', 'Alérgenos', 'Aditivos',
-            'Fecha Creación', 'Última Modificación'
+            # Campos principales para PrestaShop
+            'Product ID', 'Imagen', 'Nombre', 'Referencia', 'Categoría',
+            'Precio (imp. excl.)', 'Precio (imp. incl.)', 'Cantidad',
+            # Campos adicionales de interés
+            'Codigo', 'Codigo Tipo', 'Nombre Producto', 'Descripcion', 'Marca',
+            'Categoria', 'Categoria Path', 'Departamento', 'Producto Tipo',
+            'Imagen Url', 'Upc', 'Ean', 'Ingredientes', 'Alergenos',
+            'Organico', 'No Gmo', 'Altura', 'Ancho', 'Largo',
+            'Barcode Url', 'Producto Encontrado'
         ]
         
-        # Estilo para encabezados
-        header_fill = PatternFill(start_color="333333", end_color="333333", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF")
+        # Estilo para encabezados principales (PrestaShop)
+        header_fill_main = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_font_main = Font(bold=True, color="FFFFFF", size=11)
         
+        # Estilo para encabezados adicionales
+        header_fill_additional = PatternFill(start_color="70AD47", end_color="70AD47", fill_type="solid")
+        header_font_additional = Font(bold=True, color="FFFFFF", size=10)
+        
+        # Aplicar encabezados con estilos
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center', vertical='center')
+            # Primeros 8 campos son para PrestaShop
+            if col <= 8:
+                cell.fill = header_fill_main
+                cell.font = header_font_main
+            else:
+                cell.fill = header_fill_additional
+                cell.font = header_font_additional
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         
         # Datos de productos
         for row_idx, product in enumerate(products_data, 2):
-            ws.cell(row=row_idx, column=1, value=product.get('ean', 'N/A'))
-            ws.cell(row=row_idx, column=2, value=product.get('name', 'No disponible'))
-            ws.cell(row=row_idx, column=3, value=product.get('brand', 'No disponible'))
-            ws.cell(row=row_idx, column=4, value=product.get('description', 'No disponible'))
-            ws.cell(row=row_idx, column=5, value=product.get('category', 'No disponible'))
-            ws.cell(row=row_idx, column=6, value=product.get('nutrition_grade', 'No disponible'))
-            ws.cell(row=row_idx, column=7, value=product.get('ingredients', 'No disponible'))
-            ws.cell(row=row_idx, column=8, value=', '.join(product.get('allergens', [])) if product.get('allergens') else 'Ninguno')
-            ws.cell(row=row_idx, column=9, value=', '.join(product.get('additives', [])) if product.get('additives') else 'Ninguno')
+            # Campos para PrestaShop
+            ws.cell(row=row_idx, column=1, value=product.get('Product ID', ''))
+            ws.cell(row=row_idx, column=2, value=product.get('Imagen', ''))
+            ws.cell(row=row_idx, column=3, value=product.get('Nombre', 'No disponible'))
+            ws.cell(row=row_idx, column=4, value=product.get('Referencia', ''))
+            ws.cell(row=row_idx, column=5, value=product.get('Categoría', 'No disponible'))
+            ws.cell(row=row_idx, column=6, value=product.get('Precio (imp. excl.)', ''))
+            ws.cell(row=row_idx, column=7, value=product.get('Precio (imp. incl.)', ''))
+            ws.cell(row=row_idx, column=8, value=product.get('Cantidad', '0'))
             
-            created_t = product.get('created_t')
-            ws.cell(row=row_idx, column=10, value=datetime.fromtimestamp(created_t).strftime('%Y-%m-%d %H:%M:%S') if created_t else 'No disponible')
-            
-            last_modified_t = product.get('last_modified_t')
-            ws.cell(row=row_idx, column=11, value=datetime.fromtimestamp(last_modified_t).strftime('%Y-%m-%d %H:%M:%S') if last_modified_t else 'No disponible')
+            # Campos adicionales de interés
+            ws.cell(row=row_idx, column=9, value=product.get('Codigo', ''))
+            ws.cell(row=row_idx, column=10, value=product.get('Codigo Tipo', 'EAN'))
+            ws.cell(row=row_idx, column=11, value=product.get('Nombre Producto', 'No disponible'))
+            ws.cell(row=row_idx, column=12, value=product.get('Descripcion', 'No disponible'))
+            ws.cell(row=row_idx, column=13, value=product.get('Marca', 'No disponible'))
+            ws.cell(row=row_idx, column=14, value=product.get('Categoria', 'No disponible'))
+            ws.cell(row=row_idx, column=15, value=product.get('Categoria Path', 'No disponible'))
+            ws.cell(row=row_idx, column=16, value=product.get('Departamento', 'No disponible'))
+            ws.cell(row=row_idx, column=17, value=product.get('Producto Tipo', 'No disponible'))
+            ws.cell(row=row_idx, column=18, value=product.get('Imagen Url', ''))
+            ws.cell(row=row_idx, column=19, value=product.get('Upc', 'No disponible'))
+            ws.cell(row=row_idx, column=20, value=product.get('Ean', ''))
+            ws.cell(row=row_idx, column=21, value=product.get('Ingredientes', 'No disponible'))
+            ws.cell(row=row_idx, column=22, value=product.get('Alergenos', 'No disponible'))
+            ws.cell(row=row_idx, column=23, value=product.get('Organico', 'No disponible'))
+            ws.cell(row=row_idx, column=24, value=product.get('No Gmo', 'No disponible'))
+            ws.cell(row=row_idx, column=25, value=product.get('Altura', 'No disponible'))
+            ws.cell(row=row_idx, column=26, value=product.get('Ancho', 'No disponible'))
+            ws.cell(row=row_idx, column=27, value=product.get('Largo', 'No disponible'))
+            ws.cell(row=row_idx, column=28, value=product.get('Barcode Url', ''))
+            ws.cell(row=row_idx, column=29, value=product.get('Producto Encontrado', 'no'))
         
         # Ajustar ancho de columnas
-        for col in range(1, len(headers) + 1):
-            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 20
+        column_widths = {
+            1: 15,  # Product ID
+            2: 30,  # Imagen
+            3: 35,  # Nombre
+            4: 15,  # Referencia
+            5: 25,  # Categoría
+            6: 15,  # Precio excl
+            7: 15,  # Precio incl
+            8: 10,  # Cantidad
+            9: 15,  # Codigo
+            10: 12, # Codigo Tipo
+            11: 35, # Nombre Producto
+            12: 50, # Descripcion
+            13: 20, # Marca
+            14: 25, # Categoria
+            15: 40, # Categoria Path
+            16: 20, # Departamento
+            17: 20, # Producto Tipo
+            18: 40, # Imagen Url
+            19: 15, # Upc
+            20: 15, # Ean
+            21: 50, # Ingredientes
+            22: 30, # Alergenos
+            23: 10, # Organico
+            24: 10, # No Gmo
+            25: 10, # Altura
+            26: 10, # Ancho
+            27: 10, # Largo
+            28: 40, # Barcode Url
+            29: 15  # Producto Encontrado
+        }
+        
+        for col, width in column_widths.items():
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
+        
+        # Congelar primera fila
+        ws.freeze_panes = 'A2'
         
         # Guardar en memoria
         excel_buffer = BytesIO()
@@ -500,7 +729,7 @@ def create_bulk_excel(products_data):
         return excel_data
     
     except Exception as e:
-        print(f"Error creando Excel bulk: {str(e)}")
+        logger.error(f"Error creando Excel bulk: {str(e)}")
         return None
 
 @app.route('/process_bulk', methods=['POST'])
@@ -527,126 +756,153 @@ def process_bulk():
             
             products_data = []
             images_data = []
+            api_key = os.getenv("GEMINI_API_KEY")
             
             # Procesar cada EAN
             for idx, ean in enumerate(eans):
                 logger.info(f"🔄 Procesando EAN {idx+1}/{len(eans)}: {ean}")
                 ean = ean.strip()
                 
-                # Obtener datos del producto
+                # 1. Obtener datos de OpenFoodFacts
                 try:
                     product_result = get_product_data(ean)
-                    logger.info(f"  ✓ Datos obtenidos para {ean}: {product_result.get('success', False)}")
+                    logger.info(f"  ✓ Datos OFF obtenidos para {ean}: {product_result.get('success', False)}")
                 except Exception as e:
-                    logger.error(f"  ❌ Error obteniendo datos para {ean}: {e}")
+                    logger.error(f"  ❌ Error obteniendo datos OFF para {ean}: {e}")
                     yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': f'Error: {str(e)}'})}\n\n"
                     continue
                 
                 if product_result['success']:
-                    product = product_result['data']
-                    products_data.append(product)
+                    off_product = product_result['data']
                     
-                    # Descargar y mejorar imagen si existe
-                    if product['image_url']:
+                    # 2. Buscar datos adicionales con Gemini Web Search
+                    web_data = {}
+                    if api_key:
+                        logger.info(f"  🌐 Buscando datos web con Gemini para {ean}")
+                        try:
+                            web_result = search_product_web_data(
+                                ean, 
+                                off_product.get('name', ''), 
+                                api_key
+                            )
+                            if web_result['success']:
+                                web_data = web_result['data']
+                                logger.info(f"  ✓ Datos web obtenidos para {ean}")
+                            else:
+                                logger.warning(f"  ⚠️ No se pudieron obtener datos web: {web_result.get('error', 'Unknown')}")
+                        except Exception as e:
+                            logger.error(f"  ❌ Error en búsqueda web para {ean}: {e}")
+                    
+                    # 3. Combinar datos de OpenFoodFacts + Gemini Web
+                    combined_product = combine_product_data(ean, off_product, web_data)
+                    
+                    # 4. Procesar imagen si existe
+                    image_filename = ''
+                    if off_product.get('image_url'):
                         logger.info(f"  🖼️ Procesando imagen para {ean}")
                         try:
-                            image_result = download_image(product['image_url'], ean)
-                            if not image_result['success']:
+                            image_result = download_image(off_product['image_url'], ean)
+                            if image_result['success']:
+                                # Mejorar imagen con Gemini Image Preview
+                                if api_key:
+                                    logger.info(f"  🤖 Mejorando imagen con IA para {ean}")
+                                    prompt = ("Take the provided product image as reference and enhance it for e-commerce. "
+                                            "Remove the background completely (make it white), center the product, "
+                                            "and show it from the front in a clean, clear, and attractive way. "
+                                            "Improve lighting, sharpness, and colors so the product looks professional "
+                                            "and appealing for online sales. Ensure the product remains realistic and "
+                                            "true to its original appearance.")
+                                    
+                                    try:
+                                        enhance_result = enhance_image_with_gemini(image_result['image_data'], prompt, api_key)
+                                        if enhance_result['success']:
+                                            logger.info(f"  ✓ Imagen mejorada con IA para {ean}")
+                                            # Remover fondo con rembg
+                                            logger.info(f"  🎨 Removiendo fondo para {ean}")
+                                            try:
+                                                remove_bg_result = remove_white_background(enhance_result['image_data'])
+                                                if remove_bg_result['success']:
+                                                    image_data_final = remove_bg_result['image_data']
+                                                else:
+                                                    image_data_final = enhance_result['image_data']
+                                            except Exception as e:
+                                                logger.error(f"  ❌ Error en rembg para {ean}: {e}")
+                                                image_data_final = enhance_result['image_data']
+                                            
+                                            # Guardar imagen
+                                            name = sanitize_filename(combined_product.get('Nombre', 'producto'))
+                                            brand = sanitize_filename(combined_product.get('Marca', 'marca'))
+                                            image_filename = f"{name}-{brand}-{ean}.png"
+                                            
+                                            images_data.append({
+                                                'filename': image_filename,
+                                                'data': image_data_final
+                                            })
+                                            logger.info(f"  ✓ Imagen guardada: {image_filename}")
+                                        else:
+                                            logger.warning(f"  ⚠️ Error mejorando imagen: {enhance_result.get('error', 'Unknown')}")
+                                    except Exception as e:
+                                        logger.error(f"  ❌ Excepción en mejora de imagen para {ean}: {e}")
+                            else:
                                 logger.warning(f"  ⚠️ No se pudo descargar imagen para {ean}")
-                                yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin imagen)'})}\n\n"
-                                continue
                         except Exception as e:
-                            logger.error(f"  ❌ Error descargando imagen para {ean}: {e}")
-                            yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (error descargando imagen)'})}\n\n"
-                            continue
-                            
-                        if image_result['success']:
-                             # Mejorar imagen con IA
-                             api_key = os.getenv("GEMINI_API_KEY")
-                             if api_key:
-                                 logger.info(f"  🤖 Mejorando imagen con IA para {ean}")
-                                 prompt = ("Take the provided product image as reference and enhance it for e-commerce. "
-                                         "Remove the background completely (make it white), center the product, "
-                                         "and show it from the front in a clean, clear, and attractive way. "
-                                         "Improve lighting, sharpness, and colors so the product looks professional "
-                                         "and appealing for online sales. Ensure the product remains realistic and "
-                                         "true to its original appearance.")
-                                 
-                                 try:
-                                     enhance_result = enhance_image_with_gemini(image_result['image_data'], prompt, api_key)
-                                     if not enhance_result['success']:
-                                         logger.warning(f"  ⚠️ Error en mejora de imagen con IA para {ean}: {enhance_result.get('error', 'Unknown')}")
-                                         yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin mejora de imagen)'})}\n\n"
-                                         continue
-                                 except Exception as e:
-                                     logger.error(f"  ❌ Excepción en Gemini para {ean}: {e}")
-                                     yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (error en mejora IA)'})}\n\n"
-                                     continue
-                                 
-                                 if enhance_result['success']:
-                                     logger.info(f"  ✓ Imagen mejorada con IA para {ean}")
-                                     # Remover fondo blanco usando rembg
-                                     logger.info(f"  🎨 Removiendo fondo para {ean}")
-                                     try:
-                                         remove_bg_result = remove_white_background(enhance_result['image_data'])
-                                     except Exception as e:
-                                         logger.error(f"  ❌ Error en rembg para {ean}: {e}")
-                                         # Usar imagen mejorada sin remover fondo
-                                         remove_bg_result = {'success': False}
-                                     if remove_bg_result['success']:
-                                         # Sanitizar nombres para archivo
-                                         name = sanitize_filename(product['name'])
-                                         brand = sanitize_filename(product['brand'])
-                                         filename = f"{name}-{brand}-{ean}.png"
-                                         
-                                         images_data.append({
-                                             'filename': filename,
-                                             'data': remove_bg_result['image_data']
-                                         })
-                                         
-                                         yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado correctamente'})}\n\n"
-                                     else:
-                                         # Si falla la remoción de fondo, usar la imagen mejorada con IA
-                                         name = sanitize_filename(product['name'])
-                                         brand = sanitize_filename(product['brand'])
-                                         filename = f"{name}-{brand}-{ean}.png"
-                                         
-                                         images_data.append({
-                                             'filename': filename,
-                                             'data': enhance_result['image_data']
-                                         })
-                                         
-                                         yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin remoción de fondo)'})}\n\n"
-                                 else:
-                                     yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin mejora de imagen)'})}\n\n"
-                             else:
-                                 yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin API key para IA)'})}\n\n"
-                        else:
-                            yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin imagen)'})}\n\n"
-                    else:
-                        yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado (sin imagen disponible)'})}\n\n"
+                            logger.error(f"  ❌ Error procesando imagen para {ean}: {e}")
+                    
+                    # Actualizar ruta de imagen en datos combinados
+                    if image_filename:
+                        combined_product['Imagen'] = f"imagenes/{image_filename}"
+                    
+                    products_data.append(combined_product)
+                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Procesado correctamente'})}\n\n"
+                    
                 else:
+                    # Si falla OpenFoodFacts, crear registro básico marcado como no encontrado
                     error_msg = product_result.get('error', 'Error desconocido')
-                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': error_msg})}\n\n"
+                    logger.warning(f"  ⚠️ Producto no encontrado en OFF: {ean}")
+                    
+                    # Intentar buscar solo con Gemini
+                    web_data = {}
+                    if api_key:
+                        try:
+                            web_result = search_product_web_data(ean, '', api_key)
+                            if web_result['success']:
+                                web_data = web_result['data']
+                        except Exception as e:
+                            logger.error(f"  ❌ Error en búsqueda web alternativa para {ean}: {e}")
+                    
+                    combined_product = combine_product_data(ean, {}, web_data)
+                    combined_product['Producto Encontrado'] = 'no'
+                    products_data.append(combined_product)
+                    
+                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': f'No encontrado en OFF, datos web agregados'})}\n\n"
             
             # Crear archivo ZIP con Excel e imágenes
             logger.info(f"📦 Creando ZIP final con {len(products_data)} productos y {len(images_data)} imágenes")
             if products_data:
                 try:
+                    # Verificar estructura de products_data
+                    logger.info(f"  🔍 Primer producto ejemplo: {list(products_data[0].keys()) if products_data else 'vacío'}")
+                    
                     zip_buffer = BytesIO()
                     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                         # Agregar Excel
                         logger.info("  📊 Creando Excel...")
                         excel_data = create_bulk_excel(products_data)
                         if excel_data:
-                            zip_file.writestr('productos.xlsx', excel_data)
+                            zip_file.writestr('productos_prestashop.xlsx', excel_data)
                             logger.info(f"  ✓ Excel agregado ({len(excel_data)} bytes)")
+                        else:
+                            logger.error("  ❌ Excel data es None!")
                         
                         # Agregar imágenes en una carpeta
                         logger.info(f"  🖼️ Agregando {len(images_data)} imágenes...")
                         for img in images_data:
                             zip_file.writestr(f"imagenes/{img['filename']}", base64.b64decode(img['data']))
                         logger.info("  ✓ Imágenes agregadas")
+                        
+                        # Listar contenido del ZIP
+                        zip_contents = zip_file.namelist()
+                        logger.info(f"  📋 Contenido del ZIP: {zip_contents}")
                     
                     zip_data = zip_buffer.getvalue()
                     zip_base64 = base64.b64encode(zip_data).decode('utf-8')
