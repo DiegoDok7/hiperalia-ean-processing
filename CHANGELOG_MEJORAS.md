@@ -1,5 +1,80 @@
 # 📋 Changelog - Mejoras del Sistema EAN Automation
 
+## 🆕 Versión 2.1 - Búsqueda de Imágenes Mejorada (25 Oct 2025)
+
+### ✨ Nuevas Funcionalidades
+
+#### 1. **Búsqueda Inteligente de Imágenes desde Múltiples Fuentes**
+- Nueva función `search_and_download_product_image()` que busca imágenes de alta calidad
+- **Búsqueda automática en múltiples fuentes** con fallback inteligente:
+  1. OpenFoodFacts (alta resolución) - URLs directas a imágenes de mejor calidad
+  2. OpenFoodFacts (imagen alternativa)
+  3. OpenFoodFacts API (imagen del producto)
+  4. EAN-Search (servicio de búsqueda de EAN)
+- **Validación automática**: Verifica tamaño mínimo (200x200) y calidad de imagen
+- **Detección de calidad**: Clasifica imágenes como alta/media/baja según resolución
+
+#### 2. **Optimización para PrestaShop**
+- Prompt mejorado específicamente para PrestaShop
+- Especificaciones técnicas detalladas:
+  - Tamaño cuadrado: 800x800 píxeles
+  - Fondo blanco puro (#FFFFFF)
+  - Producto centrado ocupando 80-85% del espacio
+  - Iluminación profesional sin sombras
+  - Alta nitidez para zoom
+  - Consistencia de calidad en todas las imágenes
+
+#### 3. **Flujo Actualizado de Procesamiento de Imágenes**
+```
+1. OpenFoodFacts API → Datos del producto
+2. Búsqueda Multi-Fuente → Encuentra mejor imagen disponible
+3. Validación de imagen (tamaño, calidad)
+4. Gemini Image Preview → Optimiza para PrestaShop (800x800, fondo blanco)
+5. rembg → Remueve fondo final
+6. Guarda imagen procesada con alta calidad
+```
+
+### 🔧 Cambios Técnicos
+
+#### Nueva Función:
+- `search_and_download_product_image(ean, product_name, image_url_fallback)`:
+  - Busca imágenes en múltiples servicios
+  - Valida tamaño y formato
+  - Retorna la mejor imagen disponible
+
+#### Funciones Modificadas:
+- `process_ean()`: Usa búsqueda multi-fuente de imágenes
+- `process_bulk()`: Aplicada misma mejora con logging detallado
+- Ambas funciones funcionan incluso sin API key de Gemini (usan imagen original)
+
+#### Metadatos Adicionales:
+- `source`: Fuente de la imagen (OpenFoodFacts, EAN-Search, etc.)
+- `quality`: Calidad de la imagen (alta ≥800px, media ≥400px, baja <400px)
+- `size`: Dimensiones reales de la imagen descargada
+
+### 📊 Mejoras de Calidad
+
+**Antes:**
+- Una sola fuente de imágenes (imagen por defecto de API)
+- Sin validación de calidad
+- Sin fallback si falla la descarga
+
+**Ahora:**
+- **4 fuentes diferentes** con priorización inteligente
+- **Validación automática** de tamaño y formato
+- **Fallback robusto**: Si una fuente falla, intenta la siguiente
+- **Imágenes de alta resolución**: Prioriza URLs directas de mejor calidad
+- **Funciona sin IA**: Si no hay API key, guarda imagen original optimizada
+
+### 🎯 Beneficios
+
+1. **Mejor calidad visual**: Imágenes profesionales de e-commerce
+2. **Optimización PrestaShop**: Tamaños y formatos específicos
+3. **Consistencia**: Todas las imágenes con el mismo estándar
+4. **Mayor profesionalismo**: Tienda online con aspecto premium
+
+---
+
 ## 🆕 Versión 2.0 - Integración Gemini + PrestaShop (14 Oct 2025)
 
 ### ✨ Nuevas Funcionalidades

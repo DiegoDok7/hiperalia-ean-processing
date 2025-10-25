@@ -266,6 +266,82 @@ def search_product_web_data(ean, product_name, api_key):
     except Exception as e:
         return {'success': False, 'error': f'Error buscando datos web: {str(e)}'}
 
+def search_and_download_product_image(ean, product_name, image_url_fallback=None):
+    """Busca y descarga imagen del producto desde múltiples fuentes"""
+    try:
+        # Lista de URLs a intentar
+        urls_to_try = []
+        
+        # 1. Intentar con EAN lookup services
+        urls_to_try.append({
+            'url': f'https://images.openfoodfacts.org/images/products/{ean[:3]}/{ean[3:6]}/{ean[6:9]}/{ean[9:]}/front_en.jpg',
+            'source': 'OpenFoodFacts (alta resolución)'
+        })
+        
+        urls_to_try.append({
+            'url': f'https://world.openfoodfacts.org/images/products/{ean[:3]}/{ean[3:6]}/{ean[6:9]}/{ean[9:]}/1.jpg',
+            'source': 'OpenFoodFacts (imagen 1)'
+        })
+        
+        # 2. Si hay URL fallback de OpenFoodFacts, usarla
+        if image_url_fallback:
+            urls_to_try.append({
+                'url': image_url_fallback,
+                'source': 'OpenFoodFacts (API)'
+            })
+        
+        # 3. Intentar con servicios de imágenes de EAN
+        urls_to_try.append({
+            'url': f'https://www.ean-search.org/images/{ean}.jpg',
+            'source': 'EAN-Search'
+        })
+        
+        # Intentar descargar de cada URL
+        for item in urls_to_try:
+            try:
+                logger.info(f"  🔍 Intentando descargar imagen desde: {item['source']}")
+                img_response = requests.get(item['url'], timeout=10, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                
+                if img_response.status_code == 200 and len(img_response.content) > 1000:  # Mínimo 1KB
+                    # Verificar que sea una imagen válida
+                    try:
+                        img = Image.open(BytesIO(img_response.content))
+                        width, height = img.size
+                        
+                        # Preferir imágenes de tamaño razonable
+                        if width >= 200 and height >= 200:
+                            logger.info(f"  ✓ Imagen encontrada: {width}x{height} desde {item['source']}")
+                            
+                            # Convertir a base64
+                            image_base64 = base64.b64encode(img_response.content).decode('utf-8')
+                            
+                            return {
+                                'success': True,
+                                'image_data': image_base64,
+                                'content_type': img_response.headers.get('content-type', 'image/jpeg'),
+                                'size': len(img_response.content),
+                                'source': item['source'],
+                                'quality': 'alta' if width >= 800 else 'media' if width >= 400 else 'baja'
+                            }
+                    except Exception as img_error:
+                        logger.warning(f"  ⚠️ No es una imagen válida desde {item['source']}: {img_error}")
+                        continue
+                        
+            except Exception as download_error:
+                logger.warning(f"  ⚠️ Error descargando desde {item['source']}: {str(download_error)}")
+                continue
+        
+        # Si no se encontró ninguna imagen
+        return {
+            'success': False,
+            'error': 'No se pudo encontrar imagen del producto en ninguna fuente'
+        }
+    
+    except Exception as e:
+        return {'success': False, 'error': f'Error buscando imagen: {str(e)}'}
+
 def enhance_image_with_gemini(image_data_base64, prompt, api_key):
     """Mejora la imagen usando Google Gemini API (trabaja en memoria)"""
     try:
@@ -540,44 +616,58 @@ def process_ean():
             'files': {}
         }
         
-        # Descargar imagen original si existe
-        if product_data['image_url']:
-            image_result = download_image(product_data['image_url'], ean)
-            if image_result['success']:
-                result['images']['original'] = {
-                    'data': image_result['image_data'],
-                    'content_type': image_result['content_type'],
-                    'size': image_result['size']
-                }
+        # Buscar y descargar imagen desde múltiples fuentes
+        api_key = os.getenv("GEMINI_API_KEY")
+        # Buscar imagen de alta calidad desde múltiples fuentes
+        image_search_result = search_and_download_product_image(
+            ean, 
+            product_data.get('name', 'No disponible'),
+            product_data.get('image_url')  # URL de OpenFoodFacts como fallback
+        )
+        
+        if image_search_result['success']:
+            result['images']['original'] = {
+                'data': image_search_result['image_data'],
+                'content_type': image_search_result['content_type'],
+                'size': image_search_result['size'],
+                'source': image_search_result.get('source', 'internet'),
+                'quality': image_search_result.get('quality', 'desconocida')
+            }
+            
+            # Mejorar imagen con IA si hay API key
+            if api_key:
+                prompt = ("Take the provided product image and enhance it for PrestaShop e-commerce platform. "
+                        "Create a square image (800x800 pixels) with these specifications: "
+                        "1. Remove the background completely and replace it with pure white (#FFFFFF). "
+                        "2. Center the product perfectly in the frame. "
+                        "3. The product should occupy 80-85% of the image space, leaving appropriate margins. "
+                        "4. Show the product from the front in its most recognizable angle. "
+                        "5. Enhance lighting to be even and professional, eliminating shadows on the background. "
+                        "6. Improve sharpness and color accuracy for high-quality zoom capability. "
+                        "7. Ensure the product looks professional, clean, and appealing for online sales. "
+                        "8. Keep the product realistic and true to its original appearance. "
+                        "The final image must be optimized for PrestaShop product listings with consistent quality.")
                 
-                # Mejorar imagen con IA
-                api_key = os.getenv("GEMINI_API_KEY")
-                if api_key:
-                    prompt = ("Take the provided product image as reference and enhance it for e-commerce. "
-                            "Remove the background completely (make it white), center the product, "
-                            "and show it from the front in a clean, clear, and attractive way. "
-                            "Improve lighting, sharpness, and colors so the product looks professional "
-                            "and appealing for online sales. Ensure the product remains realistic and "
-                            "true to its original appearance.")
-                    
-                    enhance_result = enhance_image_with_gemini(image_result['image_data'], prompt, api_key)
-                    if enhance_result['success']:
-                        # Remover fondo blanco usando rembg
-                        remove_bg_result = remove_white_background(enhance_result['image_data'])
-                        if remove_bg_result['success']:
-                            result['images']['enhanced'] = {
-                                'data': remove_bg_result['image_data'],
-                                'content_type': remove_bg_result['content_type']
-                            }
-                        else:
-                            # Si falla la remoción de fondo, usar la imagen mejorada con IA
-                            result['images']['enhanced'] = {
-                                'data': enhance_result['image_data'],
-                                'content_type': enhance_result['content_type']
-                            }
-                            result['bg_removal_warning'] = remove_bg_result['error']
+                enhance_result = enhance_image_with_gemini(image_search_result['image_data'], prompt, api_key)
+                if enhance_result['success']:
+                    # Remover fondo blanco usando rembg
+                    remove_bg_result = remove_white_background(enhance_result['image_data'])
+                    if remove_bg_result['success']:
+                        result['images']['enhanced'] = {
+                            'data': remove_bg_result['image_data'],
+                            'content_type': remove_bg_result['content_type']
+                        }
                     else:
-                        result['ai_error'] = enhance_result['error']
+                        # Si falla la remoción de fondo, usar la imagen mejorada con IA
+                        result['images']['enhanced'] = {
+                            'data': enhance_result['image_data'],
+                            'content_type': enhance_result['content_type']
+                        }
+                        result['bg_removal_warning'] = remove_bg_result['error']
+                else:
+                    result['ai_error'] = enhance_result['error']
+        else:
+            result['image_search_error'] = image_search_result['error']
         
         # Crear datos Excel
         excel_result = create_excel_data(product_data, ean)
@@ -796,57 +886,80 @@ def process_bulk():
                     # 3. Combinar datos de OpenFoodFacts + Gemini Web
                     combined_product = combine_product_data(ean, off_product, web_data)
                     
-                    # 4. Procesar imagen si existe
+                    # 4. Buscar y procesar imagen desde múltiples fuentes
                     image_filename = ''
-                    if off_product.get('image_url'):
-                        logger.info(f"  🖼️ Procesando imagen para {ean}")
-                        try:
-                            image_result = download_image(off_product['image_url'], ean)
-                            if image_result['success']:
-                                # Mejorar imagen con Gemini Image Preview
-                                if api_key:
-                                    logger.info(f"  🤖 Mejorando imagen con IA para {ean}")
-                                    prompt = ("Take the provided product image as reference and enhance it for e-commerce. "
-                                            "Remove the background completely (make it white), center the product, "
-                                            "and show it from the front in a clean, clear, and attractive way. "
-                                            "Improve lighting, sharpness, and colors so the product looks professional "
-                                            "and appealing for online sales. Ensure the product remains realistic and "
-                                            "true to its original appearance.")
-                                    
-                                    try:
-                                        enhance_result = enhance_image_with_gemini(image_result['image_data'], prompt, api_key)
-                                        if enhance_result['success']:
-                                            logger.info(f"  ✓ Imagen mejorada con IA para {ean}")
-                                            # Remover fondo con rembg
-                                            logger.info(f"  🎨 Removiendo fondo para {ean}")
-                                            try:
-                                                remove_bg_result = remove_white_background(enhance_result['image_data'])
-                                                if remove_bg_result['success']:
-                                                    image_data_final = remove_bg_result['image_data']
-                                                else:
-                                                    image_data_final = enhance_result['image_data']
-                                            except Exception as e:
-                                                logger.error(f"  ❌ Error en rembg para {ean}: {e}")
+                    logger.info(f"  🖼️ Buscando imagen para {ean}")
+                    try:
+                        # Buscar imagen de alta calidad desde múltiples fuentes
+                        image_search_result = search_and_download_product_image(
+                            ean,
+                            off_product.get('name', 'No disponible'),
+                            off_product.get('image_url')  # URL de OpenFoodFacts como fallback
+                        )
+                        
+                        if image_search_result['success']:
+                            logger.info(f"  ✓ Imagen encontrada (fuente: {image_search_result.get('source', 'desconocida')})")
+                            
+                            # Mejorar imagen con Gemini Image Preview si hay API key
+                            if api_key:
+                                logger.info(f"  🤖 Mejorando imagen con IA para {ean}")
+                                prompt = ("Take the provided product image and enhance it for PrestaShop e-commerce platform. "
+                                        "Create a square image (800x800 pixels) with these specifications: "
+                                        "1. Remove the background completely and replace it with pure white (#FFFFFF). "
+                                        "2. Center the product perfectly in the frame. "
+                                        "3. The product should occupy 80-85% of the image space, leaving appropriate margins. "
+                                        "4. Show the product from the front in its most recognizable angle. "
+                                        "5. Enhance lighting to be even and professional, eliminating shadows on the background. "
+                                        "6. Improve sharpness and color accuracy for high-quality zoom capability. "
+                                        "7. Ensure the product looks professional, clean, and appealing for online sales. "
+                                        "8. Keep the product realistic and true to its original appearance. "
+                                        "The final image must be optimized for PrestaShop product listings with consistent quality.")
+                                
+                                try:
+                                    enhance_result = enhance_image_with_gemini(image_search_result['image_data'], prompt, api_key)
+                                    if enhance_result['success']:
+                                        logger.info(f"  ✓ Imagen mejorada con IA para {ean}")
+                                        # Remover fondo con rembg
+                                        logger.info(f"  🎨 Removiendo fondo para {ean}")
+                                        try:
+                                            remove_bg_result = remove_white_background(enhance_result['image_data'])
+                                            if remove_bg_result['success']:
+                                                image_data_final = remove_bg_result['image_data']
+                                            else:
                                                 image_data_final = enhance_result['image_data']
-                                            
-                                            # Guardar imagen
-                                            name = sanitize_filename(combined_product.get('Nombre', 'producto'))
-                                            brand = sanitize_filename(combined_product.get('Marca', 'marca'))
-                                            image_filename = f"{name}-{brand}-{ean}.png"
-                                            
-                                            images_data.append({
-                                                'filename': image_filename,
-                                                'data': image_data_final
-                                            })
-                                            logger.info(f"  ✓ Imagen guardada: {image_filename}")
-                                        else:
-                                            logger.warning(f"  ⚠️ Error mejorando imagen: {enhance_result.get('error', 'Unknown')}")
-                                    except Exception as e:
-                                        logger.error(f"  ❌ Excepción en mejora de imagen para {ean}: {e}")
+                                        except Exception as e:
+                                            logger.error(f"  ❌ Error en rembg para {ean}: {e}")
+                                            image_data_final = enhance_result['image_data']
+                                        
+                                        # Guardar imagen
+                                        name = sanitize_filename(combined_product.get('Nombre', 'producto'))
+                                        brand = sanitize_filename(combined_product.get('Marca', 'marca'))
+                                        image_filename = f"{name}-{brand}-{ean}.png"
+                                        
+                                        images_data.append({
+                                            'filename': image_filename,
+                                            'data': image_data_final
+                                        })
+                                        logger.info(f"  ✓ Imagen guardada: {image_filename}")
+                                    else:
+                                        logger.warning(f"  ⚠️ Error mejorando imagen: {enhance_result.get('error', 'Unknown')}")
+                                except Exception as e:
+                                    logger.error(f"  ❌ Excepción en mejora de imagen para {ean}: {e}")
                             else:
-                                logger.warning(f"  ⚠️ No se pudo descargar imagen para {ean}")
-                        except Exception as e:
-                            logger.error(f"  ❌ Error procesando imagen para {ean}: {e}")
+                                # Si no hay API key, usar imagen original
+                                name = sanitize_filename(combined_product.get('Nombre', 'producto'))
+                                brand = sanitize_filename(combined_product.get('Marca', 'marca'))
+                                image_filename = f"{name}-{brand}-{ean}.png"
+                                
+                                images_data.append({
+                                    'filename': image_filename,
+                                    'data': image_search_result['image_data']
+                                })
+                                logger.info(f"  ✓ Imagen guardada (sin IA): {image_filename}")
+                        else:
+                            logger.warning(f"  ⚠️ No se pudo encontrar imagen: {image_search_result.get('error', 'Unknown')}")
+                    except Exception as e:
+                        logger.error(f"  ❌ Error buscando/procesando imagen para {ean}: {e}")
                     
                     # Actualizar ruta de imagen en datos combinados
                     if image_filename:
