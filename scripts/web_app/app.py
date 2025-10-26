@@ -266,53 +266,67 @@ def search_product_web_data(ean, product_name, api_key):
     except Exception as e:
         return {'success': False, 'error': f'Error buscando datos web: {str(e)}'}
 
-def search_and_download_product_image(ean, product_name, image_url_fallback=None):
-    """Busca y descarga imagen del producto desde múltiples fuentes"""
+def search_web_images(ean, product_name=None):
+    """Busca UNA SOLA imagen del producto usando Google Images API de SerpAPI"""
     try:
-        # Lista de URLs a intentar
-        urls_to_try = []
+        # Usar SerpAPI Google Images
+        serpapi_key = os.getenv("SERPAPI_KEY")
         
-        # 1. Intentar con EAN lookup services
-        urls_to_try.append({
-            'url': f'https://images.openfoodfacts.org/images/products/{ean[:3]}/{ean[3:6]}/{ean[6:9]}/{ean[9:]}/front_en.jpg',
-            'source': 'OpenFoodFacts (alta resolución)'
-        })
+        if not serpapi_key:
+            logger.error("❌ SERPAPI_KEY no configurada - SOLO búsqueda web disponible")
+            return {'success': False, 'error': 'SERPAPI_KEY no configurada'}
         
-        urls_to_try.append({
-            'url': f'https://world.openfoodfacts.org/images/products/{ean[:3]}/{ean[3:6]}/{ean[6:9]}/{ean[9:]}/1.jpg',
-            'source': 'OpenFoodFacts (imagen 1)'
-        })
+        # Construir query de búsqueda
+        search_query = f"{ean}"
+        if product_name and product_name != 'No disponible':
+            search_query = f"{product_name} {ean}"
         
-        # 2. Si hay URL fallback de OpenFoodFacts, usarla
-        if image_url_fallback:
-            urls_to_try.append({
-                'url': image_url_fallback,
-                'source': 'OpenFoodFacts (API)'
-            })
+        url = "https://serpapi.com/search.json"
+        params = {
+            "engine": "google_images",
+            "q": search_query,
+            "google_domain": "google.com",
+            "gl": "us",
+            "hl": "en",
+            "api_key": serpapi_key,
+            "imgsz": "l",  # Solo imágenes grandes
+            "imgar": "s",  # Solo imágenes cuadradas
+            "image_type": "photo",  # Solo fotos
+            "safe": "active"
+        }
         
-        # 3. Intentar con servicios de imágenes de EAN
-        urls_to_try.append({
-            'url': f'https://www.ean-search.org/images/{ean}.jpg',
-            'source': 'EAN-Search'
-        })
+        logger.info(f"  🌐 Buscando UNA imagen en Google Images para: {search_query}")
+        response = requests.get(url, params=params, timeout=15)
         
-        # Intentar descargar de cada URL
-        for item in urls_to_try:
-            try:
-                logger.info(f"  🔍 Intentando descargar imagen desde: {item['source']}")
-                img_response = requests.get(item['url'], timeout=10, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                })
+        if response.status_code == 200:
+            data = response.json()
+            images = data.get('images_results', [])
+            
+            if images:
+                logger.info(f"  ✓ Encontradas {len(images)} imágenes en Google Images")
                 
-                if img_response.status_code == 200 and len(img_response.content) > 1000:  # Mínimo 1KB
-                    # Verificar que sea una imagen válida
-                    try:
-                        img = Image.open(BytesIO(img_response.content))
-                        width, height = img.size
-                        
-                        # Preferir imágenes de tamaño razonable
-                        if width >= 200 and height >= 200:
-                            logger.info(f"  ✓ Imagen encontrada: {width}x{height} desde {item['source']}")
+                # Tomar SOLO la primera imagen (la mejor)
+                img_info = images[0]
+                img_url = img_info.get('original')
+                
+                if not img_url:
+                    logger.warning("  ⚠️ Primera imagen no tiene URL original")
+                    return {'success': False, 'error': 'Imagen sin URL original'}
+                
+                logger.info(f"  🔍 Descargando imagen: {img_url[:50]}...")
+                
+                try:
+                    img_response = requests.get(img_url, timeout=10, headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    })
+                    
+                    if img_response.status_code == 200 and len(img_response.content) > 1000:
+                        # Verificar que sea una imagen válida
+                        try:
+                            img = Image.open(BytesIO(img_response.content))
+                            width, height = img.size
+                            
+                            logger.info(f"  ✓ Imagen Google encontrada: {width}x{height} desde {img_info.get('source', 'desconocido')}")
                             
                             # Convertir a base64
                             image_base64 = base64.b64encode(img_response.content).decode('utf-8')
@@ -322,21 +336,43 @@ def search_and_download_product_image(ean, product_name, image_url_fallback=None
                                 'image_data': image_base64,
                                 'content_type': img_response.headers.get('content-type', 'image/jpeg'),
                                 'size': len(img_response.content),
-                                'source': item['source'],
+                                'source': f'Google Images ({img_info.get("source", "desconocido")})',
                                 'quality': 'alta' if width >= 800 else 'media' if width >= 400 else 'baja'
                             }
-                    except Exception as img_error:
-                        logger.warning(f"  ⚠️ No es una imagen válida desde {item['source']}: {img_error}")
-                        continue
+                        except Exception as img_error:
+                            logger.warning(f"  ⚠️ Imagen no válida: {img_error}")
+                            return {'success': False, 'error': 'Imagen no válida'}
+                    else:
+                        logger.warning(f"  ⚠️ Error descargando imagen: {img_response.status_code}")
+                        return {'success': False, 'error': f'Error descargando imagen: {img_response.status_code}'}
                         
-            except Exception as download_error:
-                logger.warning(f"  ⚠️ Error descargando desde {item['source']}: {str(download_error)}")
-                continue
+                except Exception as download_error:
+                    logger.warning(f"  ⚠️ Error descargando imagen: {str(download_error)}")
+                    return {'success': False, 'error': f'Error descargando imagen: {str(download_error)}'}
+            else:
+                logger.warning("  ⚠️ No se encontraron imágenes en Google Images")
+                return {'success': False, 'error': 'No se encontraron imágenes en Google Images'}
+        else:
+            logger.warning(f"  ⚠️ Error en Google Images API: {response.status_code}")
+            return {'success': False, 'error': f'Error en Google Images API: {response.status_code}'}
+    
+    except Exception as e:
+        logger.error(f"  ❌ Error en búsqueda web: {e}")
+        return {'success': False, 'error': f'Error en búsqueda web: {str(e)}'}
+
+def search_and_download_product_image(ean, product_name, image_url_fallback=None):
+    """Busca y descarga UNA SOLA imagen del producto usando SOLO Google Images"""
+    try:
+        # SOLO usar Google Images
+        web_result = search_web_images(ean, product_name)
+        if web_result['success']:
+            return web_result
         
-        # Si no se encontró ninguna imagen
+        # Si falla Google Images, retornar error
+        logger.warning(f"  ❌ No se encontró imagen en Google Images para {ean}")
         return {
             'success': False,
-            'error': 'No se pudo encontrar imagen del producto en ninguna fuente'
+            'error': 'No se pudo encontrar imagen del producto en Google Images'
         }
     
     except Exception as e:
@@ -596,6 +632,166 @@ def search_bulk():
 def images_only():
     """Pantalla de procesamiento solo de imágenes"""
     return render_template('images_only.html')
+
+
+@app.route('/bulk_images_search')
+def bulk_images_search():
+    """Página para búsqueda masiva de imágenes por EANs"""
+    return render_template('bulk_images_search.html')
+
+
+@app.route('/process_bulk_images', methods=['POST'])
+def process_bulk_images():
+    """Procesa múltiples EANs y busca imágenes usando Google Images API"""
+    def generate():
+        try:
+            logger.info("🖼️ Iniciando búsqueda masiva de imágenes...")
+            eans_json = request.form.get('eans', '[]')
+            eans = json.loads(eans_json)
+            logger.info(f"📊 Cantidad de EANs recibidos: {len(eans)}")
+            
+            if not eans:
+                logger.warning("⚠️ No se recibieron códigos EAN")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No se recibieron códigos EAN'})}\n\n"
+                return
+            
+            # Limitar cantidad de EANs para evitar timeout
+            max_eans = 50
+            if len(eans) > max_eans:
+                logger.warning(f"⚠️ Limitando procesamiento a {max_eans} EANs")
+                yield f"data: {json.dumps({'type': 'warning', 'message': f'Se procesarán solo los primeros {max_eans} EANs de {len(eans)}'})}\n\n"
+                eans = eans[:max_eans]
+            
+            images_data = []
+            api_key = os.getenv("GEMINI_API_KEY")
+            
+            # Procesar cada EAN - SOLO IMÁGENES
+            for idx, ean in enumerate(eans):
+                logger.info(f"🔄 Procesando imagen {idx+1}/{len(eans)}: {ean}")
+                ean = ean.strip()
+                
+                try:
+                    # Obtener solo datos básicos de OFF para el nombre (sin procesar con Gemini)
+                    product_result = get_product_data(ean)
+                    product_name = 'producto'
+                    
+                    if product_result['success']:
+                        off_product = product_result['data']
+                        product_name = off_product.get('name', 'producto')
+                    
+                    # Buscar imagen usando Google Images API
+                    logger.info(f"  🖼️ Buscando imagen en Google Images para {ean}")
+                    image_search_result = search_web_images(ean, product_name)
+                    
+                    if image_search_result['success']:
+                        logger.info(f"  ✓ Imagen encontrada (fuente: {image_search_result.get('source', 'desconocida')})")
+                        
+                        # Mejorar imagen con Gemini Image Preview si hay API key
+                        if api_key:
+                            logger.info(f"  🤖 Mejorando imagen con IA para {ean}")
+                            prompt = ("Take the provided product image and enhance it for PrestaShop e-commerce platform. "
+                                    "Create a square image (800x800 pixels) with these specifications: "
+                                    "1. Remove the background completely and replace it with pure white (#FFFFFF). "
+                                    "2. Center the product perfectly in the frame. "
+                                    "3. The product should occupy 80-85% of the image space, leaving appropriate margins. "
+                                    "4. Show the product from the front in its most recognizable angle. "
+                                    "5. Enhance lighting to be even and professional, eliminating shadows on the background. "
+                                    "6. Improve sharpness and color accuracy for high-quality zoom capability. "
+                                    "7. Ensure the product looks professional, clean, and appealing for online sales. "
+                                    "8. Keep the product realistic and true to its original appearance. "
+                                    "The final image must be optimized for PrestaShop product listings with consistent quality.")
+                            
+                            try:
+                                enhance_result = enhance_image_with_gemini(image_search_result['image_data'], prompt, api_key)
+                                if enhance_result['success']:
+                                    logger.info(f"  ✓ Imagen mejorada con IA para {ean}")
+                                    # Remover fondo con rembg
+                                    logger.info(f"  🎨 Removiendo fondo para {ean}")
+                                    try:
+                                        remove_bg_result = remove_white_background(enhance_result['image_data'])
+                                        if remove_bg_result['success']:
+                                            image_data_final = remove_bg_result['image_data']
+                                        else:
+                                            image_data_final = enhance_result['image_data']
+                                    except Exception as e:
+                                        logger.error(f"  ❌ Error en rembg para {ean}: {e}")
+                                        image_data_final = enhance_result['image_data']
+                                    
+                                    # Guardar imagen - Solo EAN como nombre
+                                    image_filename = f"{ean}.png"
+                                    
+                                    images_data.append({
+                                        'filename': image_filename,
+                                        'data': image_data_final
+                                    })
+                                    logger.info(f"  ✓ Imagen guardada: {image_filename}")
+                                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Imagen procesada correctamente'})}\n\n"
+                                else:
+                                    logger.warning(f"  ⚠️ Error mejorando imagen: {enhance_result.get('error', 'Unknown')}")
+                                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': 'Error mejorando imagen'})}\n\n"
+                            except Exception as e:
+                                logger.error(f"  ❌ Excepción en mejora de imagen para {ean}: {e}")
+                                yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': f'Error: {str(e)}'})}\n\n"
+                        else:
+                            # Si no hay API key, usar imagen original - Solo EAN como nombre
+                            image_filename = f"{ean}.png"
+                            
+                            images_data.append({
+                                'filename': image_filename,
+                                'data': image_search_result['image_data']
+                            })
+                            logger.info(f"  ✓ Imagen guardada (sin IA): {image_filename}")
+                            yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Imagen guardada (sin IA)'})}\n\n"
+                    else:
+                        logger.warning(f"  ⚠️ No se pudo encontrar imagen: {image_search_result.get('error', 'Unknown')}")
+                        yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': 'No se encontró imagen'})}\n\n"
+                        
+                except Exception as e:
+                    logger.error(f"  ❌ Error procesando imagen para {ean}: {e}")
+                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': f'Error: {str(e)}'})}\n\n"
+            
+            # Crear archivo ZIP solo con imágenes
+            logger.info(f"📦 Creando ZIP final con {len(images_data)} imágenes")
+            if images_data:
+                try:
+                    zip_buffer = BytesIO()
+                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                        # Agregar solo imágenes
+                        logger.info(f"  🖼️ Agregando {len(images_data)} imágenes...")
+                        for img in images_data:
+                            zip_file.writestr(f"imagenes/{img['filename']}", base64.b64decode(img['data']))
+                        logger.info("  ✓ Imágenes agregadas")
+                        
+                        # Listar contenido del ZIP
+                        zip_contents = zip_file.namelist()
+                        logger.info(f"  📋 Contenido del ZIP: {zip_contents}")
+                    
+                    zip_data = zip_buffer.getvalue()
+                    
+                    # Guardar en archivo temporal
+                    timestamp = int(time.time() * 1000)
+                    zip_filename = f"imagenes_google_{timestamp}.zip"
+                    zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
+                    
+                    with open(zip_path, 'wb') as f:
+                        f.write(zip_data)
+                    
+                    logger.info(f"✅ ZIP guardado en {zip_path} ({len(zip_data)} bytes)")
+                    
+                    # Enviar señal de completado con nombre del archivo
+                    yield f"data: {json.dumps({'type': 'complete', 'zip_filename': zip_filename})}\n\n"
+                except Exception as e:
+                    logger.error(f"❌ Error creando ZIP: {e}", exc_info=True)
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Error creando ZIP: {str(e)}'})}\n\n"
+            else:
+                logger.warning("⚠️ No hay imágenes para procesar")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No se pudieron procesar imágenes'})}\n\n"
+        
+        except Exception as e:
+            logger.error(f"❌ ERROR FATAL en process_bulk_images: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Error: {str(e)}'})}\n\n"
+    
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/process_ean', methods=['POST'])
 def process_ean():

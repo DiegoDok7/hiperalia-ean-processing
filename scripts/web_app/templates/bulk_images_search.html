@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Búsqueda Masiva de Imágenes - EAN Automation</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .back-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .back-button:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+
+        .form-section {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 30px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1rem;
+        }
+
+        .form-group textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .btn-process {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .btn-process:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-process:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .results-section {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading i {
+            font-size: 3rem;
+            color: #667eea;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e1e5e9;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .results-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .results-header h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .results-header p {
+            color: #666;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            transition: transform 0.3s ease;
+        }
+
+        .result-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .result-card.success {
+            border-left-color: #28a745;
+        }
+
+        .result-card.error {
+            border-left-color: #dc3545;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .result-ean {
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1rem;
+        }
+
+        .result-status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .result-status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .result-status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .result-image {
+            padding: 15px;
+            text-align: center;
+        }
+
+        .result-image img {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .result-info {
+            padding: 15px;
+            background: #f8f9fa;
+            font-size: 0.9rem;
+        }
+
+        .result-info div {
+            margin-bottom: 5px;
+        }
+
+        .result-info strong {
+            color: #333;
+        }
+
+        .download-section {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .btn-download {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-download:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(40, 167, 69, 0.3);
+        }
+
+        .example-eans {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .example-eans h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .example-eans p {
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .example-eans code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-button">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+
+        <div class="header">
+            <h1><i class="fas fa-images"></i> Búsqueda Masiva de Imágenes</h1>
+            <p>Busca imágenes de múltiples productos usando Google Images API</p>
+        </div>
+
+        <div class="form-section">
+            <div class="form-group">
+                <label for="eans">
+                    <i class="fas fa-list"></i> Lista de Códigos EAN
+                </label>
+                <textarea 
+                    id="eans" 
+                    placeholder="Ingresa los códigos EAN, uno por línea:&#10;&#10;8001250120885&#10;8001250121202&#10;8005121002102&#10;8005121040845&#10;8005121000290&#10;8005121000429&#10;8005121002584&#10;8005121002850&#10;8005121052862"
+                ></textarea>
+                <small>Ingresa un código EAN por línea. Máximo 50 EANs por procesamiento.</small>
+            </div>
+
+            <div class="example-eans">
+                <h3><i class="fas fa-lightbulb"></i> Ejemplo de EANs de Prueba</h3>
+                <p>Puedes usar estos EANs para probar el sistema:</p>
+                <code>8001250120885</code><br>
+                <code>8001250121202</code><br>
+                <code>8005121002102</code><br>
+                <code>8005121040845</code><br>
+                <code>8005121000290</code>
+            </div>
+
+            <button class="btn-process" id="processBtn">
+                <i class="fas fa-search"></i> Buscar Imágenes en Google
+            </button>
+        </div>
+
+        <div class="results-section" id="resultsSection">
+            <div class="loading" id="loadingSection">
+                <i class="fas fa-spinner"></i>
+                <p>Buscando imágenes en Google Images...</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill">0%</div>
+                </div>
+            </div>
+
+            <div class="results-header" id="resultsHeader" style="display: none;">
+                <h2>Resultados de la Búsqueda</h2>
+                <p>Imágenes encontradas para los productos</p>
+            </div>
+
+            <div class="results-grid" id="resultsGrid">
+                <!-- Los resultados se insertarán aquí -->
+            </div>
+
+            <div class="download-section" id="downloadSection" style="display: none;">
+                <h3><i class="fas fa-download"></i> Descarga Lista</h3>
+                <p>Las imágenes procesadas están listas para descargar</p>
+                <a href="#" class="btn-download" id="downloadBtn">
+                    <i class="fas fa-file-archive"></i> Descargar ZIP
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let processedCount = 0;
+        let totalEANs = 0;
+        let zipFilename = null;
+
+        document.getElementById('processBtn').addEventListener('click', function() {
+            const eansText = document.getElementById('eans').value.trim();
+            
+            if (!eansText) {
+                alert('Por favor ingresa al menos un código EAN');
+                return;
+            }
+
+            // Parsear EANs
+            const eans = eansText.split('\n')
+                .map(ean => ean.trim())
+                .filter(ean => ean.length > 0);
+
+            if (eans.length === 0) {
+                alert('No se encontraron códigos EAN válidos');
+                return;
+            }
+
+            if (eans.length > 50) {
+                alert('Máximo 50 EANs por procesamiento. Se procesarán los primeros 50.');
+            }
+
+            // Iniciar procesamiento
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
+            
+            document.getElementById('resultsSection').classList.add('active');
+            document.getElementById('loadingSection').style.display = 'block';
+            document.getElementById('resultsHeader').style.display = 'none';
+            document.getElementById('resultsGrid').innerHTML = '';
+            document.getElementById('downloadSection').style.display = 'none';
+
+            processedCount = 0;
+            totalEANs = Math.min(eans.length, 50);
+
+            // Enviar datos al servidor
+            const formData = new FormData();
+            formData.append('eans', JSON.stringify(eans.slice(0, 50)));
+
+            fetch('/process_bulk_images', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                function readStream() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) return;
+
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    handleStreamData(data);
+                                } catch (e) {
+                                    console.error('Error parsing JSON:', e);
+                                }
+                            }
+                        }
+
+                        return readStream();
+                    });
+                }
+
+                return readStream();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error en el procesamiento: ' + error.message);
+                resetButton();
+            });
+        });
+
+        function handleStreamData(data) {
+            switch (data.type) {
+                case 'warning':
+                    alert(data.message);
+                    break;
+                
+                case 'progress':
+                    processedCount++;
+                    updateProgress();
+                    addResultCard(data);
+                    break;
+                
+                case 'complete':
+                    completeProcessing(data.zip_filename);
+                    break;
+                
+                case 'error':
+                    alert('Error: ' + data.message);
+                    resetButton();
+                    break;
+            }
+        }
+
+        function updateProgress() {
+            const progress = (processedCount / totalEANs * 100).toFixed(0);
+            document.getElementById('progressFill').style.width = progress + '%';
+            document.getElementById('progressFill').textContent = progress + '%';
+        }
+
+        function addResultCard(data) {
+            const resultsGrid = document.getElementById('resultsGrid');
+            const resultCard = document.createElement('div');
+            resultCard.className = `result-card ${data.success ? 'success' : 'error'}`;
+            
+            resultCard.innerHTML = `
+                <div class="result-header">
+                    <div class="result-ean">${data.ean}</div>
+                    <div class="result-status ${data.success ? 'success' : 'error'}">
+                        ${data.success ? '✓ Encontrada' : '✗ No encontrada'}
+                    </div>
+                </div>
+                <div class="result-info">
+                    <div><strong>Estado:</strong> ${data.message}</div>
+                </div>
+            `;
+            
+            resultsGrid.appendChild(resultCard);
+        }
+
+        function completeProcessing(filename) {
+            zipFilename = filename;
+            
+            // Ocultar loading y mostrar resultados
+            document.getElementById('loadingSection').style.display = 'none';
+            document.getElementById('resultsHeader').style.display = 'block';
+            document.getElementById('downloadSection').style.display = 'block';
+            
+            // Configurar botón de descarga
+            document.getElementById('downloadBtn').href = `/download_zip/${filename}`;
+            
+            // Rehabilitar botón
+            resetButton();
+        }
+
+        function resetButton() {
+            const btn = document.getElementById('processBtn');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-search"></i> Buscar Imágenes en Google';
+        }
+    </script>
+</body>
+</html>
