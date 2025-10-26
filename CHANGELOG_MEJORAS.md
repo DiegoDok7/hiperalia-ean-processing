@@ -1,5 +1,74 @@
 # 📋 Changelog - Mejoras del Sistema EAN Automation
 
+## 🆕 Versión 2.2 - Modo Solo Imágenes (26 Oct 2025)
+
+### ✨ Nuevas Funcionalidades
+
+#### 1. **Nuevo Modo: Procesamiento Solo de Imágenes**
+- Nueva página `/images_only` con interfaz dedicada
+- Procesa únicamente imágenes sin buscar datos de productos con Gemini
+- **Ahorro de costos significativo**: No usa API de Gemini para búsqueda de datos
+- Ideal cuando solo necesitas optimizar imágenes y ya tienes los datos
+
+#### 2. **Características del Modo Solo Imágenes**
+- ✅ Búsqueda automática de imágenes desde múltiples fuentes
+- ✅ Optimización con Gemini Image Preview (800x800, fondo blanco)
+- ✅ Remoción de fondo con rembg
+- ✅ Descarga en ZIP solo con imágenes (sin Excel)
+- ✅ Procesamiento hasta 50 EANs por lote
+- ✅ Usa solo nombre básico de OpenFoodFacts (sin costo adicional)
+
+#### 3. **Interfaz Actualizada**
+- Página principal ahora muestra 3 opciones:
+  1. **Búsqueda Individual**: Procesa un EAN con datos completos
+  2. **Búsqueda por Grupos**: Procesa múltiples EANs con datos + imágenes
+  3. **Solo Imágenes**: Procesa múltiples EANs solo optimizando imágenes ⭐ NUEVO
+
+### 🔧 Cambios Técnicos
+
+#### Nuevas Rutas y Funciones:
+- `@app.route('/images_only')`: Renderiza página de solo imágenes
+- `@app.route('/process_images_only', methods=['POST'])`: Procesa solo imágenes
+- Nueva plantilla `templates/images_only.html`: Interfaz optimizada
+
+#### Flujo de Solo Imágenes:
+```
+1. Recibe lista de EANs
+2. Para cada EAN:
+   ├─ Obtiene nombre básico de OpenFoodFacts (sin costo)
+   ├─ Busca imagen en múltiples fuentes
+   ├─ Optimiza con Gemini Image (solo si hay API key)
+   └─ Guarda imagen procesada
+3. Genera ZIP solo con carpeta de imágenes
+4. No genera Excel ni busca datos adicionales
+```
+
+### 💰 Ahorro de Costos
+
+**Comparación de uso de API:**
+
+| Modo | Búsqueda de Datos | Optimización de Imágenes | Costo Aproximado* |
+|------|-------------------|-------------------------|-------------------|
+| Búsqueda por Grupos | ✅ Sí (Gemini Flash-Lite) | ✅ Sí (Gemini Image) | Alto |
+| **Solo Imágenes** | ❌ No | ✅ Sí (Gemini Image) | **Bajo** |
+
+*El modo "Solo Imágenes" ahorra aproximadamente 50% de los costos de API al no usar Gemini para búsqueda de datos.
+
+### 🎯 Casos de Uso
+
+**Usar "Búsqueda por Grupos" cuando:**
+- Necesitas datos completos de productos para PrestaShop
+- Quieres generar Excel con 29 campos
+- Es la primera vez que procesas estos productos
+
+**Usar "Solo Imágenes" cuando:**
+- Ya tienes los datos de productos
+- Solo necesitas actualizar/mejorar imágenes
+- Quieres ahorrar costos de procesamiento
+- Necesitas imágenes optimizadas rápidamente
+
+---
+
 ## 🆕 Versión 2.1 - Búsqueda de Imágenes Mejorada (25 Oct 2025)
 
 ### ✨ Nuevas Funcionalidades

@@ -85,8 +85,8 @@
 
         .options {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
             margin-top: 40px;
         }
 
@@ -236,31 +236,14 @@
                         <i class="fas fa-arrow-right"></i> Comenzar
                     </a>
                 </div>
-            </div>
 
-            <div class="features">
-                <h3>Características del sistema</h3>
-                <div class="features-grid">
-                    <div class="feature-item">
-                        <i class="fas fa-robot"></i>
-                        <h4>IA Avanzada</h4>
-                        <p>Mejora de imágenes con Google Gemini</p>
-                    </div>
-                    <div class="feature-item">
-                        <i class="fas fa-database"></i>
-                        <h4>Base de Datos</h4>
-                        <p>Acceso a Open Food Facts</p>
-                    </div>
-                    <div class="feature-item">
-                        <i class="fas fa-file-excel"></i>
-                        <h4>Exportación</h4>
-                        <p>Archivos Excel organizados</p>
-                    </div>
-                    <div class="feature-item">
-                        <i class="fas fa-download"></i>
-                        <h4>Descarga ZIP</h4>
-                        <p>Todo en un solo archivo</p>
-                    </div>
+                <div class="option-card" onclick="window.location.href='/images_only'">
+                    <i class="fas fa-images"></i>
+                    <h3>Solo Imágenes</h3>
+                    <p>Procesa solo imágenes optimizadas para PrestaShop sin datos de productos. Ahorra costos de procesamiento</p>
+                    <a href="/images_only" class="btn">
+                        <i class="fas fa-arrow-right"></i> Comenzar
+                    </a>
                 </div>
             </div>
         </div>

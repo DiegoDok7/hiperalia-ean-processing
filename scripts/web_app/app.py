@@ -592,6 +592,11 @@ def search_bulk():
     """Pantalla de búsqueda por grupos"""
     return render_template('search_bulk.html')
 
+@app.route('/images_only')
+def images_only():
+    """Pantalla de procesamiento solo de imágenes"""
+    return render_template('images_only.html')
+
 @app.route('/process_ean', methods=['POST'])
 def process_ean():
     try:
@@ -931,10 +936,8 @@ def process_bulk():
                                             logger.error(f"  ❌ Error en rembg para {ean}: {e}")
                                             image_data_final = enhance_result['image_data']
                                         
-                                        # Guardar imagen
-                                        name = sanitize_filename(combined_product.get('Nombre', 'producto'))
-                                        brand = sanitize_filename(combined_product.get('Marca', 'marca'))
-                                        image_filename = f"{name}-{brand}-{ean}.png"
+                                        # Guardar imagen - Solo EAN como nombre
+                                        image_filename = f"{ean}.png"
                                         
                                         images_data.append({
                                             'filename': image_filename,
@@ -946,10 +949,8 @@ def process_bulk():
                                 except Exception as e:
                                     logger.error(f"  ❌ Excepción en mejora de imagen para {ean}: {e}")
                             else:
-                                # Si no hay API key, usar imagen original
-                                name = sanitize_filename(combined_product.get('Nombre', 'producto'))
-                                brand = sanitize_filename(combined_product.get('Marca', 'marca'))
-                                image_filename = f"{name}-{brand}-{ean}.png"
+                                # Si no hay API key, usar imagen original - Solo EAN como nombre
+                                image_filename = f"{ean}.png"
                                 
                                 images_data.append({
                                     'filename': image_filename,
@@ -1034,6 +1035,202 @@ def process_bulk():
             yield f"data: {json.dumps({'type': 'error', 'message': f'Error: {str(e)}'})}\n\n"
     
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+@app.route('/process_images_only', methods=['POST'])
+def process_images_only():
+    """Procesa solo imágenes de múltiples EANs sin procesar datos de productos"""
+    def generate():
+        try:
+            logger.info("🖼️ Iniciando process_images_only...")
+            eans_json = request.form.get('eans', '[]')
+            eans = json.loads(eans_json)
+            logger.info(f"📊 Cantidad de EANs recibidos: {len(eans)}")
+            
+            if not eans:
+                logger.warning("⚠️ No se recibieron códigos EAN")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No se recibieron códigos EAN'})}\n\n"
+                return
+            
+            # Limitar cantidad de EANs para evitar timeout
+            max_eans = 50
+            if len(eans) > max_eans:
+                logger.warning(f"⚠️ Limitando procesamiento a {max_eans} EANs")
+                yield f"data: {json.dumps({'type': 'warning', 'message': f'Se procesarán solo los primeros {max_eans} EANs de {len(eans)}'})}\n\n"
+                eans = eans[:max_eans]
+            
+            images_data = []
+            api_key = os.getenv("GEMINI_API_KEY")
+            
+            # Procesar cada EAN - SOLO IMÁGENES
+            for idx, ean in enumerate(eans):
+                logger.info(f"🔄 Procesando imagen {idx+1}/{len(eans)}: {ean}")
+                ean = ean.strip()
+                
+                try:
+                    # Obtener solo datos básicos de OFF para el nombre (sin procesar con Gemini)
+                    product_result = get_product_data(ean)
+                    product_name = 'producto'
+                    image_url_fallback = None
+                    
+                    if product_result['success']:
+                        off_product = product_result['data']
+                        product_name = off_product.get('name', 'producto')
+                        image_url_fallback = off_product.get('image_url')
+                    
+                    # Buscar imagen desde múltiples fuentes
+                    logger.info(f"  🖼️ Buscando imagen para {ean}")
+                    image_search_result = search_and_download_product_image(
+                        ean,
+                        product_name,
+                        image_url_fallback
+                    )
+                    
+                    if image_search_result['success']:
+                        logger.info(f"  ✓ Imagen encontrada (fuente: {image_search_result.get('source', 'desconocida')})")
+                        
+                        # Mejorar imagen con Gemini Image Preview si hay API key
+                        if api_key:
+                            logger.info(f"  🤖 Mejorando imagen con IA para {ean}")
+                            prompt = ("Take the provided product image and enhance it for PrestaShop e-commerce platform. "
+                                    "Create a square image (800x800 pixels) with these specifications: "
+                                    "1. Remove the background completely and replace it with pure white (#FFFFFF). "
+                                    "2. Center the product perfectly in the frame. "
+                                    "3. The product should occupy 80-85% of the image space, leaving appropriate margins. "
+                                    "4. Show the product from the front in its most recognizable angle. "
+                                    "5. Enhance lighting to be even and professional, eliminating shadows on the background. "
+                                    "6. Improve sharpness and color accuracy for high-quality zoom capability. "
+                                    "7. Ensure the product looks professional, clean, and appealing for online sales. "
+                                    "8. Keep the product realistic and true to its original appearance. "
+                                    "The final image must be optimized for PrestaShop product listings with consistent quality.")
+                            
+                            try:
+                                enhance_result = enhance_image_with_gemini(image_search_result['image_data'], prompt, api_key)
+                                if enhance_result['success']:
+                                    logger.info(f"  ✓ Imagen mejorada con IA para {ean}")
+                                    # Remover fondo con rembg
+                                    logger.info(f"  🎨 Removiendo fondo para {ean}")
+                                    try:
+                                        remove_bg_result = remove_white_background(enhance_result['image_data'])
+                                        if remove_bg_result['success']:
+                                            image_data_final = remove_bg_result['image_data']
+                                        else:
+                                            image_data_final = enhance_result['image_data']
+                                    except Exception as e:
+                                        logger.error(f"  ❌ Error en rembg para {ean}: {e}")
+                                        image_data_final = enhance_result['image_data']
+                                    
+                                    # Guardar imagen - Solo EAN como nombre
+                                    image_filename = f"{ean}.png"
+                                    
+                                    images_data.append({
+                                        'filename': image_filename,
+                                        'data': image_data_final
+                                    })
+                                    logger.info(f"  ✓ Imagen guardada: {image_filename}")
+                                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Imagen procesada correctamente'})}\n\n"
+                                else:
+                                    logger.warning(f"  ⚠️ Error mejorando imagen: {enhance_result.get('error', 'Unknown')}")
+                                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': 'Error mejorando imagen'})}\n\n"
+                            except Exception as e:
+                                logger.error(f"  ❌ Excepción en mejora de imagen para {ean}: {e}")
+                                yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': f'Error: {str(e)}'})}\n\n"
+                        else:
+                            # Si no hay API key, usar imagen original - Solo EAN como nombre
+                            image_filename = f"{ean}.png"
+                            
+                            images_data.append({
+                                'filename': image_filename,
+                                'data': image_search_result['image_data']
+                            })
+                            logger.info(f"  ✓ Imagen guardada (sin IA): {image_filename}")
+                            yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': True, 'message': 'Imagen guardada (sin IA)'})}\n\n"
+                    else:
+                        logger.warning(f"  ⚠️ No se pudo encontrar imagen: {image_search_result.get('error', 'Unknown')}")
+                        yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': 'No se encontró imagen'})}\n\n"
+                        
+                except Exception as e:
+                    logger.error(f"  ❌ Error procesando imagen para {ean}: {e}")
+                    yield f"data: {json.dumps({'type': 'progress', 'ean': ean, 'success': False, 'message': f'Error: {str(e)}'})}\n\n"
+            
+            # Crear archivo ZIP solo con imágenes
+            logger.info(f"📦 Creando ZIP final con {len(images_data)} imágenes")
+            if images_data:
+                try:
+                    zip_buffer = BytesIO()
+                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                        # Agregar solo imágenes
+                        logger.info(f"  🖼️ Agregando {len(images_data)} imágenes...")
+                        for img in images_data:
+                            zip_file.writestr(f"imagenes/{img['filename']}", base64.b64decode(img['data']))
+                        logger.info("  ✓ Imágenes agregadas")
+                        
+                        # Listar contenido del ZIP
+                        zip_contents = zip_file.namelist()
+                        logger.info(f"  📋 Contenido del ZIP: {zip_contents}")
+                    
+                    zip_data = zip_buffer.getvalue()
+                    
+                    # Guardar en archivo temporal
+                    timestamp = int(time.time() * 1000)
+                    zip_filename = f"imagenes_{timestamp}.zip"
+                    zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
+                    
+                    with open(zip_path, 'wb') as f:
+                        f.write(zip_data)
+                    
+                    logger.info(f"✅ ZIP guardado en {zip_path} ({len(zip_data)} bytes)")
+                    
+                    # Enviar señal de completado con nombre del archivo
+                    yield f"data: {json.dumps({'type': 'complete', 'zip_filename': zip_filename})}\n\n"
+                except Exception as e:
+                    logger.error(f"❌ Error creando ZIP: {e}", exc_info=True)
+                    yield f"data: {json.dumps({'type': 'error', 'message': f'Error creando ZIP: {str(e)}'})}\n\n"
+            else:
+                logger.warning("⚠️ No hay imágenes para procesar")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No se pudieron procesar imágenes'})}\n\n"
+        
+        except Exception as e:
+            logger.error(f"❌ ERROR FATAL en process_images_only: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Error: {str(e)}'})}\n\n"
+    
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+@app.route('/download_zip/<filename>')
+def download_zip(filename):
+    """Descarga un archivo ZIP temporal"""
+    try:
+        # Seguridad: validar que el nombre de archivo sea válido
+        if not filename.endswith('.zip') or '..' in filename or '/' in filename:
+            return jsonify({'error': 'Nombre de archivo inválido'}), 400
+        
+        zip_path = os.path.join(tempfile.gettempdir(), filename)
+        
+        if not os.path.exists(zip_path):
+            return jsonify({'error': 'Archivo no encontrado'}), 404
+        
+        # Enviar archivo y eliminarlo después
+        response = send_file(
+            zip_path,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+        # Programar eliminación del archivo después de enviarlo
+        @response.call_on_close
+        def cleanup():
+            try:
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+                    logger.info(f"🗑️ Archivo temporal eliminado: {zip_path}")
+            except Exception as e:
+                logger.error(f"Error eliminando archivo temporal: {e}")
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error descargando ZIP: {e}")
+        return jsonify({'error': str(e)}), 500
 
 logger.info("✅ Aplicación Flask completamente cargada y lista!")
 logger.info(f"📊 Rutas registradas: {len(app.url_map._rules)}")
